@@ -22,8 +22,12 @@ from sys import getsizeof, exit
 
 from data_utils import load_raster, paths_map_multiple_scenes, stack_rasters, stack_rasters_multiprocess, download_from_pr
 from shapefile_utils import get_shapefile_path_row, mask_raster_to_shapefile, filter_shapefile_overlapping, mask_raster_to_features
-from runspec import cdl_crop_values, cdl_non_crop_values
+from runspec import cdl_crop_values, cdl_non_crop_values, cdl_wateresque_values
 
+
+crop = list(cdl_crop_values().keys())
+water = list(cdl_wateresque_values().keys())
+non_crop = list(cdl_non_crop_values().keys())
 
 class SatDataGenerator(Sequence):
 
@@ -65,7 +69,6 @@ class SatDataGenerator(Sequence):
 
     def _labels_and_features(self, data_tiles):
         features = []
-        crop = list(cdl_crop_values().keys())
         if self.use_cdl:
             cdls = []
         one_hots = []
@@ -75,9 +78,16 @@ class SatDataGenerator(Sequence):
             data = tile['data']
             one_hot = tile['one_hot'].astype(np.int)
             if self.use_cdl:
-                cdl = tile['cdl'].astype(np.int)
-                cdl = np.isin(cdl, crop)
-                cdls.append(cdl)
+                cdl = np.squeeze(tile['cdl'].astype(np.int))
+                cdl_mask = np.zeros((data.shape[0], data.shape[1], 3))
+                crop_mask = np.isin(cdl, crop)
+                cdl_mask[:, :, 0] = crop_mask
+                not_crop = np.isin(cdl, non_crop)
+                cdl_mask[:, :, 1] = not_crop
+                water_mask = np.isin(cdl, water)
+                cdl_mask[:, :, 2] = water_mask
+                cdls.append(cdl_mask)
+
             if self.apply_irrigated_weights:
                 one_hot[:, :, 0] *= 50
             class_code = tile['class_code']
