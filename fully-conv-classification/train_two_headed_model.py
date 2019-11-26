@@ -26,19 +26,21 @@ join = os.path.join
 
 if __name__ == '__main__':
 
-    initial_learning_rate = 1e-3
+    initial_learning_rate = 1e-2
 
-    input_shape = (None, None, 52)
+    input_shape = (None, None, 51)
 
     n_classes = 4
 
     ap = ArgumentParser()
-    ap.add_argument('--gamma', type=float, default=2)
-
+    ap.add_argument('--gamma', type=float, default=0.5)
     args = ap.parse_args()
 
-    model = unet(input_shape, initial_exp=4, n_classes=n_classes)
-    model_path = 'random_majority_files/multiclass/normal_xen_cdl_as_input-efold-500epochs/'
+
+    model = two_headed_unet(input_shape, initial_exp=4, n_classes=n_classes)
+    model_path = \
+    'random_majority_files/multiclass/cdl-and-regular-xen-3-cdl-classes-new-architecture/'.format(args.gamma)
+
     if not os.path.isdir(model_path):
         os.mkdir(model_path)
 
@@ -52,12 +54,12 @@ if __name__ == '__main__':
             update_freq=30,
             batch_size=3)
     checkpoint = ModelCheckpoint(filepath=model_path,
-                                 monitor='val_m_acc',
+                                 monitor='val_irr_m_acc',
                                  verbose=1,
                                  save_best_only=True)
 
     epochs = 1000
-    lr_schedule = partial(lr_schedule, initial_learning_rate=initial_learning_rate, efold=200)
+    lr_schedule = partial(lr_schedule, initial_learning_rate=initial_learning_rate, efold=epochs/2)
     lr_scheduler = LearningRateScheduler(lr_schedule, verbose=True)
 
     root = '/home/thomas/ssd/multiclass_with_separate_fallow_directory_and_cdl/'
@@ -66,18 +68,19 @@ if __name__ == '__main__':
 
     opt = tf.keras.optimizers.Adam()
     batch_size = 4
-    loss_func = masked_categorical_xent
+    loss_func = multiclass_focal_loss(gamma=args.gamma)
     metric = m_acc
-    model.compile(opt, loss=[masked_categorical_xent],
-            metrics=[metric])
+    loss_weights = [1.0, 1.0]
+    model.compile(opt, loss=[masked_categorical_xent, 'categorical_crossentropy'],
+            metrics={'irr':metric, 'cdl':'accuracy'}, loss_weights=loss_weights)
     train_generator = DataGenerator(train_dir, batch_size, target_classes=None, 
             n_classes=n_classes, balance=False, balance_pixels_per_batch=False, 
             balance_examples_per_batch=True, apply_irrigated_weights=False,
-            training=True, augment_data=False, use_cdl=False)
+            training=True, augment_data=False, use_cdl=True)
     test_generator = DataGenerator(test_dir, batch_size, target_classes=None, 
-            n_classes=n_classes, training=False, balance=False, steps_per_epoch=20,
-            augment_data=False, use_cdl=False)
-    m2 = F1Score(test_generator, n_classes, model_path, batch_size, two_headed_net=False)
+            n_classes=n_classes, training=False, balance=False, steps_per_epoch=30,
+            augment_data=False, use_cdl=True)
+    m2 = F1Score(test_generator, n_classes, model_path, batch_size, two_headed_net=True)
     model.fit_generator(train_generator, 
             epochs=epochs,
             validation_data=test_generator,

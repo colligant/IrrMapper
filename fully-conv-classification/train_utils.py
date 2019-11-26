@@ -183,7 +183,9 @@ def confusion_matrix_from_generator(valid_generator, batch_size, model, n_classe
     with Pool(batch_size) as pool:
         for cnt, (batch_x, y_true) in enumerate(valid_generator):
             y_true = y_true[0] # pull irrigated ground truth
-            preds = model.predict(batch_x)[0] 
+            preds = model.predict(batch_x)
+            if multi_output:
+                preds = preds[0]
             sz = batch_x[0].shape[0]
             try:
                 y_trues = [np.squeeze(y_true[i]) for i in range(sz)]

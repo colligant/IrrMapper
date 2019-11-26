@@ -96,10 +96,15 @@ def two_headed_unet(input_shape, initial_exp=6, n_classes=5):
     c12 = ConvBNRelu(u4, filters=exp**_power)
     u4_c1 = Concatenate()([c12, c1])
     c13 = ConvBlock(u4_c1, filters=exp**_power)
-    cdl_logits = Conv2D(filters=1, kernel_size=1, strides=1,
-                    activation='sigmoid', name='cdl')(c13)
+    cdl_logits = Conv2D(filters=3, kernel_size=1, strides=1,
+                    activation='softmax', name='cdl')(c13)
 
-    concat_final = Concatenate()([cdl_logits, c13])
+    c14 = ConvBlock(cdl_logits, exp**_power)
+    mp5 = MaxPooling2D(pool_size=2, strides=2)(c14)
+
+    c15 = ConvBlock(c14, exp**_power)
+    u5 = UpSampling2D(size=(2, 2))(c15)
+    concat_final = Concatenate()([c15, c13])
 
     irr_logits = Conv2D(filters=n_classes, kernel_size=1, strides=1,
                     activation=None, name='irr')(concat_final)

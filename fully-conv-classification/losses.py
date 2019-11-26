@@ -125,6 +125,15 @@ def binary_acc(y_true, y_pred):
     y_pred = tf.boolean_mask(y_pred, mask)
     return K.mean(K.equal(y_true, K.round(y_pred)))
 
+def multiclass_acc(y_true, y_pred):
+    y_true_sum = tf.reduce_sum(y_true, axis=-1)
+    mask = tf.not_equal(y_true_sum, 0)
+    y_pred = tf.nn.softmax(y_pred)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    y_true = tf.argmax(y_true, axis=-1)
+    y_true_masked = tf.boolean_mask(y_true, mask)
+    y_pred_masked = tf.boolean_mask(y_pred, mask)
+    return K.mean(K.equal(y_pred_masked, y_true_masked))
 
 def m_acc(y_true, y_pred):
     y_true_sum = tf.reduce_sum(y_true, axis=-1)

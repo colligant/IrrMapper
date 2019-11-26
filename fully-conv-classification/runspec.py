@@ -190,6 +190,14 @@ def cdl_crop_values():
             250: 'Cranberries',
             254: 'Dbl Crop Barley/Soybeans'}
 
+def cdl_wateresque_values():
+    return {83: 'Water',
+            87: 'Wetlands',
+            111: 'Open Water',
+            190: 'Woody Wetlands',
+            195: 'Herbaceous Wetlands'
+            }
+
 
 def cdl_non_crop_values():
     return {37: 'Other Hay/Non Alfalfa',
@@ -200,11 +208,8 @@ def cdl_non_crop_values():
             65: 'Barren',
             81: 'Clouds/No Data',
             82: 'Developed',
-            83: 'Water',
-            87: 'Wetlands',
             88: 'Nonag/Undefined',
             92: 'Aquaculture',
-            111: 'Open Water',
             112: 'Perennial Ice/Snow',
             121: 'Developed/Open Space',
             122: 'Developed/Low Intensity',
@@ -215,9 +220,8 @@ def cdl_non_crop_values():
             142: 'Evergreen Forest',
             143: 'Mixed Forest',
             152: 'Shrubland',
-            176: 'Grass/Pasture',
-            190: 'Woody Wetlands',
-            195: 'Herbaceous Wetlands'}
+            176: 'Grass/Pasture'
+            }
 
 
 if __name__ == '__main__':

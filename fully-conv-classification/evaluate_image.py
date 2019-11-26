@@ -41,7 +41,7 @@ def _evaluate_image_return_logits(model, raster, n_classes, n_overlaps=4):
             for j in range(k, raster.shape[2]-diff, stride):
                 sub_raster = raster[:, i:i+chunk_size, j:j+chunk_size, :]
                 preds = model.predict([sub_raster]) 
-                out[i:i+chunk_size, j:j+chunk_size, :] += preds[0]
+                out[i:i+chunk_size, j:j+chunk_size, :] += preds[1][0]  
             stdout.write("K: {} of {}. Percent done: {:.2f}\r".format(k // overlap_step + 1, n_overlaps, i / raster.shape[1]))
     out = np.swapaxes(out, 0, 2)
     out = out.astype(np.float32)
@@ -86,8 +86,8 @@ def evaluate_image_many_shot(image_directory, model_paths, n_classes=4,
         out_arr += _evaluate_image_return_logits(model, image_stack, n_classes=n_classes,
             n_overlaps=n_overlaps)
         del model
-
-    out_arr = softmax(out_arr)
+    if n_classes != 1:
+        out_arr = softmax(out_arr)
     temp_mask = np.zeros((1, out_arr.shape[1], out_arr.shape[2]))
     fmasked_image = concatenate_fmasks(image_directory, temp_mask, meta, nodata=1)
     for i in range(out_arr.shape[0]):
@@ -132,7 +132,8 @@ if __name__ == '__main__':
 
     custom_objects = {'mb':masked_binary_xent, 'multiclass_acc':multiclass_acc,
             'binary_acc':binary_acc, 'masked_categorical_xent':masked_categorical_xent,
-            'multiclass_FL':mfl}
+            'multiclass_FL':mfl, 'm_acc':m_acc}
+
     model_paths = args.model
     if args.evaluate_all_mt:
         for path, row in irrigated_path_rows_mt():

@@ -125,7 +125,60 @@ def reproject_if_needed(source, target):
                     resampling=Resampling.nearest)
     return source
 
+def extract_training_data_over_path_row_single_scene(test_train_shapefiles, path, row, year,
+        image_directory, training_data_root_directory, n_classes, assign_shapefile_class_code,
+        preprocessing_func=None, tile_size=608):
 
+    if path_map_func is None:
+        path_map_func = paths_map_multiple_scenes
+
+    if not isinstance(test_train_shapefiles, dict):
+        raise ValueError("expected dict, got {}".format(type(test_train_shapefiles)))
+    
+    path_row_year = str(path) + '_' + str(row) +  '_' + str(year)
+    image_path = os.path.join(image_directory, path_row_year)
+    if not os.path.isdir(image_path):
+        download_from_pr(path, row, year, image_directory)
+    image_path_maps = path_map_func(image_path)
+    mask_file = _random_tif_from_directory(image_path)
+    mask, mask_meta = load_raster(mask_file)
+    mask = np.zeros_like(mask).astype(np.int)
+    cdl_path = os.path.join(image_path, 'cdl_mask.tif')
+    cdl_raster, cdl_meta = load_raster(cdl_path)
+    if mask.shape != cdl_raster.shape:
+        cdl_raster = warp_single_image(cdl_path, mask_meta)
+    cdl_raster = np.swapaxes(cdl_raster, 0, 2)
+    try:
+        image_stack = stack_rasters_multiprocess(image_path_maps, target_geo=mask_meta, target_shape=mask.shape)
+        image_stack = np.swapaxes(image_stack, 0, 2)
+    except RasterioIOError as e:
+        print("Redownload images for", path_row_year)
+        print(e)
+        return
+    for key, shapefiles in test_train_shapefiles.items():
+        if key.lower() not in ('test', 'train'):
+            raise ValueError("expected key to be one of case-insenstive {test, train},\
+            got {}".format(key))
+
+        training_data_directory = os.path.join(training_data_root_directory, key)
+        first = True
+        class_labels = None
+        for f in shapefiles:
+            class_code = assign_shapefile_class_code(f)
+            print(f, class_code)
+            out, _ = mask_raster_to_shapefile(f, mask_file, return_binary=False)
+            if first:
+                class_labels = out
+                class_labels[~class_labels.mask] = class_code
+                first = False
+            else:
+                class_labels[~out.mask] = class_code
+        class_labels = concatenate_fmasks(image_path, class_labels, mask_meta) 
+        class_labels = np.swapaxes(class_labels, 0, 2)
+        class_labels = np.squeeze(class_labels)
+        tiles_y, tiles_x = _target_indices_from_class_labels(class_labels, tile_size)
+        _save_training_data_from_indices(image_stack, class_labels, cdl_raster,
+                training_data_directory, n_classes, tiles_x, tiles_y, tile_size)
 def extract_training_data_over_path_row(test_train_shapefiles, path, row, year, image_directory,
         training_data_root_directory, n_classes, assign_shapefile_class_code, path_map_func=None,
         preprocessing_func=None, tile_size=608):

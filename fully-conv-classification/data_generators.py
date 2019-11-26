@@ -77,6 +77,8 @@ class SatDataGenerator(Sequence):
         for tile in data_tiles:
             data = tile['data']
             one_hot = tile['one_hot'].astype(np.int)
+            cdl = tile['cdl']
+            data = np.dstack((data, cdl))
             if self.use_cdl:
                 cdl = np.squeeze(tile['cdl'].astype(np.int))
                 cdl_mask = np.zeros((data.shape[0], data.shape[1], 3))
@@ -292,7 +294,7 @@ class DataGenerator(SatDataGenerator):
                 self.files.extend(glob(os.path.join(d, "*pkl")))
             shuffle(self.files)
             self.entire_corpus = self.files.copy()
-            if not self.training and self.steps_per_epoch is not None:
+            if self.steps_per_epoch is not None and not self.training:
                 self.entire_corpus = self.files.copy()
                 self.files = self.entire_corpus[:self.steps_per_epoch*self.batch_size]
             elif not self.training:
