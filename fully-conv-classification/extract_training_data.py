@@ -7,6 +7,7 @@ import warnings
 import argparse
 import pdb
 import matplotlib.pyplot as plt
+import datetime
 
 from glob import glob
 from random import sample, shuffle, choice
@@ -21,8 +22,11 @@ from collections import defaultdict
 
 from runspec import (landsat_rasters, climate_rasters, mask_rasters, assign_shapefile_class_code,
         assign_shapefile_year, cdl_crop_values, cdl_non_crop_values)
-from data_utils import load_raster, paths_map_multiple_scenes, stack_rasters, stack_rasters_multiprocess, download_from_pr, paths_mapping_single_scene, mean_of_three, median_of_three
-from shapefile_utils import get_shapefile_path_row, mask_raster_to_shapefile, filter_shapefile_overlapping, mask_raster_to_features
+from data_utils import (load_raster, paths_map_multiple_scenes, stack_rasters,
+        stack_rasters_multiprocess, download_from_pr, paths_mapping_single_scene, mean_of_three,
+        median_of_three, stack_rasters_single_scene, _parse_landsat_capture_date)
+from shapefile_utils import (get_shapefile_path_row, mask_raster_to_shapefile,
+        filter_shapefile_overlapping, mask_raster_to_features)
 
 
 def distance_map(mask):
@@ -70,8 +74,7 @@ def _pickle_datatile(datatile, training_directory):
 
 
 def concatenate_fmasks(image_directory, class_mask, class_mask_geo, nodata=0, target_directory=None):
-    ''' 
-    ``Fmasks'' are masks of clouds and water. We don't want clouds/water in
+    ''' ``Fmasks'' are masks of clouds and water. We don't want clouds/water in
     the training set, so this function gets all the fmasks for a landsat
     scene (contained in image_directory), and merges them into one raster. 
     They may not be the same size, so warp_vrt is used to make them align. 
@@ -96,42 +99,66 @@ def concatenate_fmasks(image_directory, class_mask, class_mask_geo, nodata=0, ta
     return class_mask
 
 
-def reproject_if_needed(source, target):
-    with rasopen(target, 'r') as dst:
-        dst_crs = dst.meta['crs']
+def create_class_labels(shapefiles, assign_shapefile_class_code, mask_file):
+    first = True
+    class_labels = None
+    for f in shapefiles:
+        class_code = assign_shapefile_class_code(f)
+        print(f, class_code)
+        out, _ = mask_raster_to_shapefile(f, mask_file, return_binary=False)
+        if first:
+            class_labels = out
+            class_labels[~class_labels.mask] = class_code
+            first = False
+        else:
+            class_labels[~out.mask] = class_code
+    return class_labels
 
-    with rasopen(source) as src:
-        if src.meta['crs'] == dst_crs:
-            return source
-        transform, width, height = calculate_default_transform(
-            src.crs, dst_crs, src.width, src.height, *src.bounds)
-        kwargs = src.meta.copy()
-        kwargs.update({
-            'crs': dst_crs,
-            'transform': transform,
-            'width': width,
-            'height': height
-        })
 
-        with rasopen(source, 'w', **kwargs) as dst:
-            for i in range(1, src.count + 1):
-                reproject(
-                    source=band(src, i),
-                    destination=band(dst, i),
-                    src_transform=src.transform,
-                    src_crs=src.crs,
-                    dst_transform=transform,
-                    dst_crs=dst_crs,
-                    resampling=Resampling.nearest)
-    return source
+def _days_from_january_raster(date, target_shape):
+    begin = datetime.date(date.year, 1, 1)
+    diff = date - begin
+    days = diff.days
+    out = np.zeros(target_shape)
+    out += days
+    return out
+
+
+def concatenate_fmasks_single_scene(class_labels, image_directory, target_date):
+
+    for d in os.listdir(image_directory):
+        if os.path.isdir(os.path.join(image_directory, d)):
+            try:
+                date = _parse_landsat_capture_date(d)
+            except Exception as e:
+                print(e)
+            if date == target_date:
+                landsat_directory = d
+                break
+    class_mask = class_mask.copy()
+    paths = []
+    for dirpath, dirnames, filenames in os.walk(landsat_directory):
+        for f in filenames:
+            for suffix in mask_rasters():
+                if f.endswith(suffix):
+                    pth = os.path.join(dirpath, f)
+                    paths.append(pth)
+    for fmask_file in paths:
+        fmask, _ = load_raster(fmask_file)
+        # clouds, water present where fmask == 1.
+        try:
+            class_mask = ma.masked_where(fmask == 1, class_mask)
+        except (ValueError, IndexError) as e:
+            fmask = warp_single_image(fmask_file, class_mask_geo)
+            class_mask = ma.masked_where(fmask == 1, class_mask)
+
+    return class_mask
+
 
 def extract_training_data_over_path_row_single_scene(test_train_shapefiles, path, row, year,
         image_directory, training_data_root_directory, n_classes, assign_shapefile_class_code,
         preprocessing_func=None, tile_size=608):
 
-    if path_map_func is None:
-        path_map_func = paths_map_multiple_scenes
-
     if not isinstance(test_train_shapefiles, dict):
         raise ValueError("expected dict, got {}".format(type(test_train_shapefiles)))
     
@@ -139,7 +166,7 @@ def extract_training_data_over_path_row_single_scene(test_train_shapefiles, path
     image_path = os.path.join(image_directory, path_row_year)
     if not os.path.isdir(image_path):
         download_from_pr(path, row, year, image_directory)
-    image_path_maps = path_map_func(image_path)
+    image_path_maps = paths_mapping_single_scene(image_path)
     mask_file = _random_tif_from_directory(image_path)
     mask, mask_meta = load_raster(mask_file)
     mask = np.zeros_like(mask).astype(np.int)
@@ -148,44 +175,39 @@ def extract_training_data_over_path_row_single_scene(test_train_shapefiles, path
     if mask.shape != cdl_raster.shape:
         cdl_raster = warp_single_image(cdl_path, mask_meta)
     cdl_raster = np.swapaxes(cdl_raster, 0, 2)
-    try:
-        image_stack = stack_rasters_multiprocess(image_path_maps, target_geo=mask_meta, target_shape=mask.shape)
-        image_stack = np.swapaxes(image_stack, 0, 2)
-    except RasterioIOError as e:
-        print("Redownload images for", path_row_year)
-        print(e)
-        return
     for key, shapefiles in test_train_shapefiles.items():
+        class_labels = create_class_labels(shapefiles, assign_shapefile_class_code, mask_file)
         if key.lower() not in ('test', 'train'):
             raise ValueError("expected key to be one of case-insenstive {test, train},\
             got {}".format(key))
+        for date, paths_map in image_path_maps.items():
+            try:
+                date_raster = _days_from_january_raster(date, target_shape=mask.shape)
+                date_raster = np.swapaxes(date_raster, 0, 2)
+                image_stack = stack_rasters_single_scene(paths_map, target_geo=mask_meta,
+                    target_shape=mask.shape)
+                image_stack = np.swapaxes(image_stack, 0, 2)
+                image_stack = np.dstack((image_stack, date_raster))
+            except RasterioIOError as e:
+                print("Redownload images for", path_row_year)
+                print(e)
+                return
+                training_data_directory = os.path.join(training_data_root_directory, key)
+                class_label_single_scene = concatenate_fmasks_single_scene(class_labels,
+                        image_directory, mask_meta) 
+                class_labels_single_scene = np.swapaxes(class_labels_single_scene, 0, 2)
+                class_labels_single_scene = np.squeeze(class_labels_single_scene)
+                tiles_y, tiles_x = _target_indices_from_class_labels(class_labels, tile_size)
+                _save_training_data_from_indices(image_stack, class_labels_single_scene,
+                        cdl_raster, training_data_directory, n_classes, tiles_x, tiles_y,
+                        tile_size)
 
-        training_data_directory = os.path.join(training_data_root_directory, key)
-        first = True
-        class_labels = None
-        for f in shapefiles:
-            class_code = assign_shapefile_class_code(f)
-            print(f, class_code)
-            out, _ = mask_raster_to_shapefile(f, mask_file, return_binary=False)
-            if first:
-                class_labels = out
-                class_labels[~class_labels.mask] = class_code
-                first = False
-            else:
-                class_labels[~out.mask] = class_code
-        class_labels = concatenate_fmasks(image_path, class_labels, mask_meta) 
-        class_labels = np.swapaxes(class_labels, 0, 2)
-        class_labels = np.squeeze(class_labels)
-        tiles_y, tiles_x = _target_indices_from_class_labels(class_labels, tile_size)
-        _save_training_data_from_indices(image_stack, class_labels, cdl_raster,
-                training_data_directory, n_classes, tiles_x, tiles_y, tile_size)
+
+
 def extract_training_data_over_path_row(test_train_shapefiles, path, row, year, image_directory,
-        training_data_root_directory, n_classes, assign_shapefile_class_code, path_map_func=None,
+        training_data_root_directory, n_classes, assign_shapefile_class_code, 
         preprocessing_func=None, tile_size=608):
 
-    if path_map_func is None:
-        path_map_func = paths_map_multiple_scenes
-
     if not isinstance(test_train_shapefiles, dict):
         raise ValueError("expected dict, got {}".format(type(test_train_shapefiles)))
     
@@ -213,20 +235,8 @@ def extract_training_data_over_path_row(test_train_shapefiles, path, row, year, 
         if key.lower() not in ('test', 'train'):
             raise ValueError("expected key to be one of case-insenstive {test, train},\
             got {}".format(key))
-
         training_data_directory = os.path.join(training_data_root_directory, key)
-        first = True
-        class_labels = None
-        for f in shapefiles:
-            class_code = assign_shapefile_class_code(f)
-            print(f, class_code)
-            out, _ = mask_raster_to_shapefile(f, mask_file, return_binary=False)
-            if first:
-                class_labels = out
-                class_labels[~class_labels.mask] = class_code
-                first = False
-            else:
-                class_labels[~out.mask] = class_code
+        class_labels = create_class_labels(shapefiles, assign_shapefile_class_code)
         class_labels = concatenate_fmasks(image_path, class_labels, mask_meta) 
         class_labels = np.swapaxes(class_labels, 0, 2)
         class_labels = np.squeeze(class_labels)
@@ -302,7 +312,7 @@ def _random_tif_from_directory(image_directory):
     return tiffs[0]
 
 
-def min_data_tiles_to_cover_labels(shapefiles, path, row, year, image_directory, tile_size=608):
+def min_data_tiles_to_cover_labels_plot(shapefiles, path, row, year, image_directory, tile_size=608):
     path_row_year = "_".join([str(path), str(row), str(year)])
     image_directory = os.path.join(image_directory, path_row_year)
     mask_file = _random_tif_from_directory(image_directory)
@@ -414,11 +424,12 @@ if __name__ == '__main__':
     
     image_directory = '/home/thomas/share/image_data/'
     shapefiles = glob('shapefile_data/test/*.shp') + glob('shapefile_data/train/*.shp')
-    training_root_directory = '/home/thomas/share/multiclass_with_separate_fallow_directory_and_cdl/'
+    training_root_directory = '/home/thomas/ssd/single_scene_no_fallow/'
+
     if not os.path.isdir(training_root_directory):
         os.makedirs(training_root_directory)
 
-    n_classes = 4
+    n_classes = 3
     done = set()
 
     for f in shapefiles:
@@ -434,6 +445,6 @@ if __name__ == '__main__':
         print("extracting data for", path, row, year)
         paths_map_func = paths_map_multiple_scenes
         test_train_shapefiles = {'test':test_shapefiles, 'train':train_shapefiles}
-        extract_training_data_over_path_row(test_train_shapefiles, path, row, year, image_directory,
-                training_root_directory, n_classes, assign_shapefile_class_code, path_map_func=paths_map_func)
-
+        extract_training_data_over_path_row_single_scene(test_train_shapefiles, path, row, 
+                year, image_directory, training_root_directory, n_classes,
+                assign_shapefile_class_code)
