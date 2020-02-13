@@ -4,6 +4,7 @@ import json
 import pdb
 import datetime
 import numpy as np
+import sys
 
 from fiona import open as fopen
 from glob import glob
@@ -58,8 +59,6 @@ def download_cdl_over_path_row(path, row, year, image_directory):
         print(landsat_pic)
 
 
-
-
 def download_images_over_shapefile(shapefile, image_directory, year):
     '''Downloads p/r corresponding to the location of 
        the shapefile. Image_directory: where to save the raw images.
@@ -72,10 +71,7 @@ def download_images_over_shapefile(shapefile, image_directory, year):
         satellite = 7
     if not os.path.isdir(landsat_dir):
         os.mkdir(landsat_dir)
-        ims = _download_images(landsat_dir, p, r, year, satellite)
-    else:
-        ims = _download_images(landsat_dir, p, r, year, satellite)
-
+    ims = _download_images(image_directory, p, r, year, satellite)
     return ims
 
 
@@ -88,7 +84,7 @@ def download_from_pr(p, r, year, image_directory, satellite=8):
     landsat_dir = os.path.join(image_directory, suff)
     if not os.path.isdir(landsat_dir):
         os.mkdir(landsat_dir)
-    ims = _download_images(landsat_dir, p, r, year, satellite)
+    ims = _download_images(image_directory, p, r, year, satellite)
     return ims
 
 
@@ -100,6 +96,7 @@ def _download_images(project_directory, path, row, year, satellite,
 
     image_stack.build_evaluating() # the difference b/t build_training() and build_eval() is
     # a cloud mask.
+    #download_cdl_over_path_row(path, row, year, project_directory)
     return image_stack
 
 
@@ -158,19 +155,18 @@ def _climate_band_map(directory, band_map, date):
 
 
 def paths_mapping_single_scene(landsat_directory):
-    directories = [os.path.join(landsat_directory, f) for f in os.listdir(landsat_directory) if
+    landsat_directories = [os.path.join(landsat_directory, f) for f in os.listdir(landsat_directory) if
             os.path.isdir(os.path.join(landsat_directory, f))]
+    landsat_directories = [d for d in landsat_directories if 'climate' not in d]
     climate_directory  = os.path.join(landsat_directory, 'climate_rasters')
-    other_rasters = [os.path.join(landsat_directory, f) for f in os.listdir(landsat_directory) if
+    ancillary_rasters = [os.path.join(landsat_directory, f) for f in os.listdir(landsat_directory) if
             not os.path.isdir(os.path.join(landsat_directory, f))]
     date_dict = dict()
-    for d in directories:
-        if 'climate' in d:
-            continue
+    for d in landsat_directories:
         pm = _landsat_band_map(d)
         date = _parse_landsat_capture_date(d)
         cm = _climate_band_map(climate_directory, pm, date)
-        for raster in other_rasters:
+        for raster in ancillary_rasters:
             for band in static_rasters():
                 if raster.endswith(band):
                     pm[band] = raster
@@ -184,10 +180,10 @@ def paths_map_multiple_scenes(image_directory, satellite=8):
     band_map = defaultdict(list)
     for band in landsat_rasters()[satellite]:
         band_map[band] = []
-    for band in static_rasters():
-        band_map[band] = []
-    for band in climate_rasters():
-        band_map[band] = []
+    #for band in static_rasters():
+    #    band_map[band] = []
+    #for band in climate_rasters():
+    #    band_map[band] = []
 
     extensions = (".tif", ".TIF")
     for dirpath, dirnames, filenames in os.walk(image_directory):
@@ -281,8 +277,12 @@ def map_bands_to_indices(target_bands, satellite=8):
 
 def _maybe_warp(feature_raster, target_geo, target_shape):
     arr, _ = load_raster(feature_raster)
-    if not arr.shape == target_shape:
+    if arr.shape != target_shape:
+        print("#####################")
+        print(arr.shape)
+        print(feature_raster, target_geo)
         arr = warp_single_image(feature_raster, target_geo)
+        print(arr.shape)
     return arr, feature_raster
 
 
@@ -318,42 +318,70 @@ def _load_rasters(paths_map, target_geo, target_shape):
     rasters = {feature_raster: array for (array, feature_raster) in out}
     return rasters, num_rasters
 
+def create_image_stack(paths_map):
+    first = True
+    stack = None
+    j = 0
+    num_rasters = 0
+    for ls in paths_map.values():
+        num_rasters += len(ls)
+    print(num_rasters)
+    for feat in sorted(paths_map.keys()):
+        feature_rasters = paths_map[feat]
+        for feature_raster in feature_rasters:
+            if first:
+                arr, target_geo = load_raster(feature_raster)
+                stack = np.zeros((num_rasters, arr.shape[1], arr.shape[2]), np.uint16)
+                stack[j, :, :] = arr
+                j += 1
+                first = False
+            else:
+                try:
+                    arr = load_raster(feature_raster)
+                    stack[j, :, :] = arr
+                    j += 1
+                except ValueError:
+                    arr = warp_single_image(feature_raster, target_geo)
+                    stack[j, :, :] = arr
+                    j += 1
+    return stack
+
+
 
 def stack_rasters_multiprocess(paths_map, target_geo, target_shape):
     first = True
     stack = None
-    single_band = False
     j = 0
     rasters, num_rasters = _load_rasters(paths_map, target_geo, target_shape)
     for feat in sorted(paths_map.keys()): # ensures the stack is in the same order each time.
         # Ordering within bands is assured by sorting the list that
         # each band corresponding to, as that's sorted by date.
         feature_rasters = paths_map[feat] # maps bands to their location in filesystem.
-        if not single_band:
-            for feature_raster in feature_rasters:
-                arr = rasters[feature_raster]
-                if first:
-                    stack = np.zeros((num_rasters, target_shape[1], target_shape[2]), np.uint16)
-                    stack[j, :, :] = arr
-                    j += 1
-                    first = False
-                else:
-                    stack[j, :, :] = arr
-                    j += 1 
-        else:
-
-            arr, _ = _select_correct_band(rasters, feat)
-
-            # somehow select
+        for feature_raster in feature_rasters:
+            arr = rasters[feature_raster]
             if first:
                 stack = np.zeros((num_rasters, target_shape[1], target_shape[2]), np.uint16)
                 stack[j, :, :] = arr
                 j += 1
                 first = False
             else:
-                stack[j, :, :] = arr
-                j += 1 
+                try:
+                    stack[j, :, :] = arr
+                    j += 1 
+                except ValueError as e:
+                    print(feature_raster)
+                    print(target_geo)
+                    raise
     return stack
+
+
+def stack_rasters_single_scene(paths_map, target_geo, target_shape):
+    out = np.zeros((len(paths_map), target_shape[1], target_shape[2]))
+    for idx, band_name in enumerate(sorted(paths_map)):
+        # rely on sorting to stack
+        arr, _ = _maybe_warp(paths_map[band_name], target_geo, target_shape)
+        out[idx] = np.squeeze(arr)
+    return out
 
 
 def _select_correct_band(rasters, target_feat):
@@ -466,14 +494,44 @@ def load_raster(raster_name):
         meta = src.meta.copy()
     return arr, meta
 
-prs =  [[34, 26], [36, 27], [37,28], [34,27], [39,26], [37,29], [42,27], [41,28], [39,29], [36,28], [40,27], [37,26], [35,26], [38,29], [40,28], [38,27], [35,27], [42,26], [41,26], [40,29], [34,29], [35,29], [38,26], [36,26], [39,28], [41,27], [38,28], [37,27], [36,29], [35,28], [43,26], [39,27], [40,26], [43,27], [34,28]]
+prs =  [[34, 26],
+        [36, 27],
+        [37,28],
+        [34,27],
+        [39,26],
+        [37,29],
+        [42,27],
+        [41,28],
+        [39,29],
+        [36,28],
+        [40,27],
+        [37,26],
+        [35,26],
+        [38,29],
+        [40,28],
+        [38,27],
+        [35,27],
+        [42,26],
+        [41,26],
+        [40,29],
+        [34,29],
+        [35,29],
+        [38,26],
+        [36,26],
+        [39,28],
+        [41,27],
+        [38,28],
+        [37,27],
+        [36,29],
+        [35,28],
+        [43,26],
+        [39,27],
+        [40,26],
+        [43,27], 
+        [34,28]]
 
 if __name__ == "__main__":
 
-    from runspec import landsat_rasters, climate_rasters
-
-    year = 2013
+    prs = [[37, 28]]
     for path, row in prs:
-         # download_from_pr(int(path), int(row), int(year), '/home/thomas/share/image_data/')
-         download_cdl_over_path_row(path, row, year, '/home/thomas/share/image_data/')
-
+        download_from_pr(path, row, 2014, '/home/thomas/share/landsat_test/')

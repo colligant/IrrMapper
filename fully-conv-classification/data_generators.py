@@ -78,18 +78,10 @@ class SatDataGenerator(Sequence):
             data = tile['data']
             one_hot = tile['one_hot'].astype(np.int)
             cdl = tile['cdl']
-            data = np.dstack((data, cdl))
             if self.use_cdl:
                 cdl = np.squeeze(tile['cdl'].astype(np.int))
-                cdl_mask = np.zeros((data.shape[0], data.shape[1], 3))
-                crop_mask = np.isin(cdl, crop)
-                cdl_mask[:, :, 0] = crop_mask
-                not_crop = np.isin(cdl, non_crop)
-                cdl_mask[:, :, 1] = not_crop
-                water_mask = np.isin(cdl, water)
-                cdl_mask[:, :, 2] = water_mask
-                cdls.append(cdl_mask)
-
+                cdl = np.expand_dims(cdl, axis=-1)
+                cdls.append(cdl)
             if self.apply_irrigated_weights:
                 one_hot[:, :, 0] *= 50
             class_code = tile['class_code']

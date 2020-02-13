@@ -39,7 +39,7 @@ if __name__ == '__main__':
 
     model = two_headed_unet(input_shape, initial_exp=4, n_classes=n_classes)
     model_path = \
-    'random_majority_files/multiclass/cdl-and-regular-xen-3-cdl-classes-new-architecture/'.format(args.gamma)
+    'random_majority_files/multiclass/cdl-and-regular-xen-with-cdl-new-architecture-regression-loss/'.format(args.gamma)
 
     if not os.path.isdir(model_path):
         os.mkdir(model_path)
@@ -59,7 +59,7 @@ if __name__ == '__main__':
                                  save_best_only=True)
 
     epochs = 1000
-    lr_schedule = partial(lr_schedule, initial_learning_rate=initial_learning_rate, efold=epochs/2)
+    lr_schedule = partial(lr_schedule, initial_learning_rate=initial_learning_rate, efold=epochs/10)
     lr_scheduler = LearningRateScheduler(lr_schedule, verbose=True)
 
     root = '/home/thomas/ssd/multiclass_with_separate_fallow_directory_and_cdl/'
@@ -70,9 +70,9 @@ if __name__ == '__main__':
     batch_size = 4
     loss_func = multiclass_focal_loss(gamma=args.gamma)
     metric = m_acc
-    loss_weights = [1.0, 1.0]
-    model.compile(opt, loss=[masked_categorical_xent, 'categorical_crossentropy'],
-            metrics={'irr':metric, 'cdl':'accuracy'}, loss_weights=loss_weights)
+    loss_weights = [1.0, 0.05]
+    model.compile(opt, loss=[masked_categorical_xent, 'mse'],
+            metrics={'irr':metric, 'cdl':'mse'}, loss_weights=loss_weights)
     train_generator = DataGenerator(train_dir, batch_size, target_classes=None, 
             n_classes=n_classes, balance=False, balance_pixels_per_batch=False, 
             balance_examples_per_batch=True, apply_irrigated_weights=False,

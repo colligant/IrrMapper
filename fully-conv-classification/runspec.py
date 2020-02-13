@@ -18,7 +18,6 @@ from glob import glob
 abspath = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(abspath)
 
-target_bands = ('B1.TIF', 'B2.TIF', 'B3.TIF', 'B4.TIF')
 
 def assign_shapefile_class_code_binary(shapefile):
     if 'irrigated' in shapefile and 'unirrigated' not in shapefile:
@@ -33,7 +32,7 @@ def assign_shapefile_class_code(shapefile):
     if 'uncultivated' in shapefile or 'wetlands' in shapefile:
         return 2
     if 'fallow' in shapefile:
-        return 3
+        return 1
 
 def assign_shapefile_year(shapefile):
     # get the shapefile name, not the whole path.

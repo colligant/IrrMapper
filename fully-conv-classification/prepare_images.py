@@ -66,7 +66,7 @@ class ImageStack(object):
         self.max_cloud = 100
         self.start = start
         self.end = end
-        self.root = root
+        self.root = os.path.join(root, "_".join([str(path), str(row), str(year)]))
 
         self.profile = None
         self.dst_path_cloud = None
@@ -87,19 +87,19 @@ class ImageStack(object):
         self.exclude_rasters = []
 
         if year and not start and not end:
-            self.start = '{}-05-01'.format(self.year)
-            self.end = '{}-10-15'.format(self.year)
+            self.start = '{}-01-01'.format(self.year)
+            self.end = '{}-12-31'.format(self.year)
 
     def build_training(self):
         self.get_landsat(fmask=True)
         self.profile = self.landsat.rasterio_geometry
-        self.get_climate_timeseries()
+        #self.get_climate_timeseries()
         self.get_terrain()
         self.paths_map, self.masks = self._order_images()
 
     def build_evaluating(self):
         # Multiprocessing on this may not be plausible.
-        self.get_landsat(fmask=True)
+        self.get_landsat(fmask=False)
         self.profile = self.landsat.rasterio_geometry # fix this?
         # self.get_climate_timeseries()
         # The above line stopped working for unknown reasons.
@@ -138,8 +138,8 @@ class ImageStack(object):
 
         g.select_scenes(self.n)
         self.scenes = g.selected_scenes
-        g.download(list_type='selected')
-        # g.download(list_type='all')
+        # g.download(list_type='selected')
+        g.download(list_type='all')
         self.image_dirs = [x[0] for x in os.walk(self.root) if
                            os.path.basename(x[0])[:3] in self.landsat_mapping.keys()]
 

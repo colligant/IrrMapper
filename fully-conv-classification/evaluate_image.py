@@ -41,10 +41,11 @@ def _evaluate_image_return_logits(model, raster, n_classes, n_overlaps=4):
             for j in range(k, raster.shape[2]-diff, stride):
                 sub_raster = raster[:, i:i+chunk_size, j:j+chunk_size, :]
                 preds = model.predict([sub_raster]) 
-                out[i:i+chunk_size, j:j+chunk_size, :] += preds[1][0]  
+                out[i:i+chunk_size, j:j+chunk_size, :] += preds[0]
             stdout.write("K: {} of {}. Percent done: {:.2f}\r".format(k // overlap_step + 1, n_overlaps, i / raster.shape[1]))
     out = np.swapaxes(out, 0, 2)
     out = out.astype(np.float32)
+    out /= n_overlaps
     return out
 
 
@@ -160,7 +161,7 @@ if __name__ == '__main__':
         evaluate_image_many_shot(args.image_dir, 
                  model_paths=model_paths, 
                  n_classes=args.n_classes,
-                 n_overlaps=1,
+                 n_overlaps=100,
                  outfile=outfile,
                  custom_objects=custom_objects,
                  preprocessing_func=args.preprocessing_func)

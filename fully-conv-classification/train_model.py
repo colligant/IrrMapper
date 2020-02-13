@@ -28,9 +28,9 @@ if __name__ == '__main__':
 
     initial_learning_rate = 1e-3
 
-    input_shape = (None, None, 52)
+    input_shape = (None, None, 20)
 
-    n_classes = 4
+    n_classes = 3
 
     ap = ArgumentParser()
     ap.add_argument('--gamma', type=float, default=2)
@@ -38,7 +38,7 @@ if __name__ == '__main__':
     args = ap.parse_args()
 
     model = unet(input_shape, initial_exp=4, n_classes=n_classes)
-    model_path = 'random_majority_files/multiclass/normal_xen_cdl_as_input-efold-500epochs/'
+    model_path = 'random_majority_files/multiclass/xen-single-scene-per-season/'
     if not os.path.isdir(model_path):
         os.mkdir(model_path)
 
@@ -60,7 +60,7 @@ if __name__ == '__main__':
     lr_schedule = partial(lr_schedule, initial_learning_rate=initial_learning_rate, efold=200)
     lr_scheduler = LearningRateScheduler(lr_schedule, verbose=True)
 
-    root = '/home/thomas/ssd/multiclass_with_separate_fallow_directory_and_cdl/'
+    root = '/home/thomas/ssd/single_scene_no_fallow/'
     train_dir = join(root, 'train')
     test_dir = join(root, 'test')
 
@@ -75,13 +75,13 @@ if __name__ == '__main__':
             balance_examples_per_batch=True, apply_irrigated_weights=False,
             training=True, augment_data=False, use_cdl=False)
     test_generator = DataGenerator(test_dir, batch_size, target_classes=None, 
-            n_classes=n_classes, training=False, balance=False, steps_per_epoch=20,
+            n_classes=n_classes, training=False, balance=False, 
             augment_data=False, use_cdl=False)
-    m2 = F1Score(test_generator, n_classes, model_path, batch_size, two_headed_net=False)
+    #m2 = F1Score(test_generator, n_classes, model_path, batch_size, two_headed_net=False)
     model.fit_generator(train_generator, 
             epochs=epochs,
             validation_data=test_generator,
-            callbacks=[tensorboard, lr_scheduler, checkpoint, m2],
+            callbacks=[tensorboard, lr_scheduler, checkpoint],#, m2],
             use_multiprocessing=False,
             workers=1,
             max_queue_size=1,
