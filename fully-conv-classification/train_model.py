@@ -70,7 +70,7 @@ if __name__ == '__main__':
 
     model_name = 'model_{val_m_acc:.3f}-{val_f1:.3f}.h5'
     model_dir = 'recording-f1'
-    model_out_path = 'models/non-recurrent/{}/'.format(model_dir)
+    model_out_path = 'current_models/non-recurrent/{}/'.format(model_dir)
 
 
     if not os.path.isdir(model_out_path):
