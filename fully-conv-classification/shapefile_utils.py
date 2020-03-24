@@ -1,5 +1,6 @@
 import geopandas as gpd
 import os
+import pdb
 from json import loads
 from numpy import zeros, asarray, array, reshape, nan, sqrt, std
 from copy import deepcopy
@@ -17,6 +18,22 @@ def get_features(gdf):
     features = [feature['geometry'] for feature in tmp['features']]
     return features
 
+def centroids_of_polygons(shapefile):
+
+    #  make a temp dir...?
+    if shapefile is None:
+        return None
+    out_filename = os.path.join('/home/thomas/buffered-shapefiles/', os.path.basename(shapefile))
+    with fopen(shapefile, 'r') as polys:
+        meta = polys.meta
+        meta['schema']['geometry'] = "Point"
+        with fopen(out_filename, 'w', **meta) as dst:
+            for feat in polys:
+                geom = shape(feat['geometry'])
+                feat['geometry'] = mapping(shape(geom.centroid))
+                dst.write(feat)
+    return out_filename
+
 
 def mask_raster_to_shapefile(shapefile, raster, return_binary=True):
     ''' 
@@ -33,7 +50,6 @@ def mask_raster_to_shapefile(shapefile, raster, return_binary=True):
         crs = CRS(src.crs['init'])
         shp = shp.to_crs(crs)
         features = get_features(shp)
-        arr = src.read()
         out_image, out_transform = mask(src, shapes=features, filled=False)
         if return_binary:
             out_image[out_image != 0] = 1 
@@ -310,7 +326,6 @@ def required_points(shapefile, total_area, total_instances):
 def buffer_shapefile(shp):
     buf = -0.00050
     with fopen(shp, 'r') as polys:
-        out = []
         meta = polys.meta
         with fopen(shp, 'w', **meta) as dst:
             for feat in polys:

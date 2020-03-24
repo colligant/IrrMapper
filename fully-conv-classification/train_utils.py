@@ -174,9 +174,42 @@ def _preprocess_masks_and_calculate_cmat(y_true, y_pred, n_classes=2):
 
     return cmat
 
+def timeseries_confusion_matrix_from_generator(valid_generator, batch_size, model, n_classes,
+        average_time_axis=True):
 
-def confusion_matrix_from_generator(valid_generator, batch_size, model, n_classes=2,
-        print_mat=False, multi_output=False):
+    out_cmat = np.zeros((n_classes, n_classes))
+    labels = np.arange(n_classes)
+    if not len(valid_generator):
+        raise ValueError("Length of validation generator is 0")
+
+    for count, (batch_x, y_trues) in enumerate(valid_generator):
+        preds = np.squeeze(model.predict(batch_x))
+        if average_time_axis:
+            preds = np.mean(preds, axis=1) # mean , max , last?
+            argmax = np.argmax(preds, axis=3) 
+            nodata_mask = []
+            for i in range(y_trues.shape[0]):
+                nodata_mask.append(y_trues[i][0])
+            mask = np.asarray(nodata_mask)
+            nodata_mask = np.sum(mask, axis=-1) != 0 # no labels in the one hot means sum
+            # over depth is 0
+            y_hat = argmax[nodata_mask]
+            y_true = np.argmax(mask, axis=-1)[nodata_mask]
+            out_cmat += confusion_matrix(y_hat, y_true, labels=labels)
+            stdout.write("{}/{}\r".format(count, len(valid_generator)))
+
+    return out_cmat, 0, 2 
+
+
+
+
+
+
+
+
+
+
+def confusion_matrix_from_generator(valid_generator, batch_size, model, n_classes=2, print_mat=False, multi_output=False):
     out_cmat = np.zeros((n_classes, n_classes))
     if not len(valid_generator):
         raise ValueError("Length of validation generator is 0")

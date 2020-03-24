@@ -7,8 +7,9 @@ from glob import glob
 from numpy import sum as nsum
 
 from losses import *
-from data_generators import DataGenerator
-from train_utils import confusion_matrix_from_generator
+from tifs_and_pngs.data_generators import *
+from tifs_and_pngs.hpc_datagen import StackDataGenerator
+from train_utils import confusion_matrix_from_generator, timeseries_confusion_matrix_from_generator
 
 
 if __name__ ==  '__main__':
@@ -40,10 +41,15 @@ if __name__ ==  '__main__':
         target_class = int(args.target_class)
     except TypeError as e:
         target_class = None
-    test_generator = DataGenerator(data_directory=args.test_data_path, batch_size=batch_size,
-            training=False, target_classes=target_class)
-    cmat, prec, recall = confusion_matrix_from_generator(test_generator, batch_size, model,
-            n_classes=args.n_classes, multi_output=args.multi_output)
+    test_generator = StackDataGenerator(data_directory=args.test_data_path, batch_size=batch_size,
+            training=alse, target_classes=target_class)
+    test_generator = StackDataGenerator(data_directory=args.test_data_path,
+            batch_size=args.batch_size, training=False)
+    print(len(test_generator))
+    cmat, prec, recall = confusion_matrix_from_generator(test_generator, batch_size, 
+            model, n_classes=args.n_classes)
+    #cmat, prec, recall = timeseries_confusion_matrix_from_generator(test_generator, batch_size, 
+    #        model, n_classes=args.n_classes)
     print(cmat)
     print(nsum(cmat, axis=1))
     print('model {} has \n p:{}\n r:{}'.format(args.model, prec, recall))

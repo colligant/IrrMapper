@@ -117,7 +117,16 @@ def _parse_landsat_capture_date(landsat_scene):
        VV = Archived version number
     '''
     julian_year_day = landsat_scene[-10:-5]
-    return datetime.datetime.strptime(julian_year_day, '%y%j').date()
+    try:
+        # LSAT 8
+        return datetime.datetime.strptime(julian_year_day, '%y%j').date()
+    except ValueError as e:
+        # LSAT 7
+        # LE07_L1GT_034026_20130128_20160909_0
+        landsat_scene = os.path.basename(landsat_scene)
+        date = landsat_scene.split("_")[3]
+        return datetime.datetime.strptime(date, '%Y%m%d').date()
+
 
 
 def _landsat_band_map(subdirectory, satellite=8):
@@ -532,6 +541,12 @@ prs =  [[34, 26],
 
 if __name__ == "__main__":
 
-    prs = [[37, 28]]
-    for path, row in prs:
-        download_from_pr(path, row, 2014, '/home/thomas/share/landsat_test/')
+
+    r = '/home/thomas/share/landsat_test/'
+    for d in os.listdir(r):
+        for ld in os.listdir(os.path.join(r, d)):
+            for f in glob(os.path.join(r, d, ld, "*TIF")):
+                if os.path.basename(f[3]) == '7':
+                    print(f)
+                
+

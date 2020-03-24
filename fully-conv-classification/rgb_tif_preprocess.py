@@ -18,33 +18,6 @@ from extract_training_data import create_class_labels
 
 targets = ('B4.TIF', 'B3.TIF', 'B2.TIF')
 
-def stack_rgb_images_from_list_of_filenames_sorted_by_date(filenames):
-    first = True
-    image_stack = None
-    tilesize = 608
-    i = 0
-    for filename in filenames:
-        with rasterio.open(filename, 'r') as src:
-            arr = src.read()
-            meta = deepcopy(src.meta)
-        if first:
-            first = False
-            image_stack = np.zeros((3*len(filenames), arr.shape[1], arr.shape[2]), 
-                    dtype=np.uint16)
-            og_meta = deepcopy(meta)
-            og_fname = filename
-            image_stack[0:3] = arr
-            i += 3
-        else:
-            try:
-                image_stack[i:i+3] = arr
-                i += 3
-            except ValueError as e:
-                arr = warp_single_image(filename, og_meta)
-                image_stack[i:i+3] = arr
-                i += 3
-    return image_stack, og_meta, og_fname, meta
-
 
 def save_rgb_image(rgb_tif_dict, outfile):
 
@@ -74,29 +47,6 @@ def save_rgb_image(rgb_tif_dict, outfile):
         with rasterio.open(outfile, 'w', **meta) as dst:
             dst.write(rgb_array)
 
-def save_all_rgb(landsat_path, out_path):
-
-    for d in os.listdir(landsat_path):
-        for root, subdir, files in os.walk(os.path.join(landsat_path, d)):
-            if len(subdir):
-                subdirs = [p for p in subdir if 'climate' not in p]
-                for sd in subdirs:
-                    if 'LC80' not in sd:
-                        continue
-                    date = parse_landsat_capture_date(sd)
-                    rgb_tif_dict = {}
-                    for tif in glob(os.path.join(landsat_path, d, sd, "*TIF")):
-                        for t in targets:
-                            if tif.endswith(t):
-                                rgb_tif_dict[t] = tif
-                    fstr = 'rgb_{}_{}.TIF'.format(d, date)
-                    try:
-                        save_rgb_image(rgb_tif_dict, os.path.join(out_path, fstr))
-                    except Exception as e:
-                        print(e) 
-def filename_to_date(filename):
-    date =  datetime.datetime.strptime(os.path.splitext(os.path.basename(filename))[0][-10:], '%Y-%m-%d')
-    return date
 
 landsat_path = '/home/thomas/share/landsat_test/'
 out_path = '/home/thomas/ssd/rgb-landsat-entire-year/'
