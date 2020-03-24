@@ -9,9 +9,11 @@ import matplotlib.pyplot as plt
 import argparse
 import pickle
 import pdb
+
 from scipy.special import expit
 from sklearn.metrics import confusion_matrix
 from tensorflow.keras.models import load_model
+from tensorflow.keras.models import Model
 from sys import stdout
 from tensorflow.keras.callbacks import Callback
 from collections import defaultdict, namedtuple
@@ -20,44 +22,58 @@ from random import sample, shuffle
 from glob import glob
 
 
-class F1Score(Callback):
+def mask_unlabeled_values(y_true, y_pred):
+    '''
+    y_pred: softmaxed tensor
+    y_true: one-hot tensor of labels
+    Returns two vectors of labels. Assumes input
+    tensors are 4-dimensional (batchxrowxcolxdepth)
+    '''
+    mask = tf.not_equal(tf.reduce_sum(y_true, axis=-1), 0)
+    y_true = tf.argmax(y_true, axis=-1)
+    y_pred = tf.argmax(y_pred, axis=-1)
+    y_true = tf.boolean_mask(y_true, mask)
+    y_pred = tf.boolean_mask(y_pred, mask)
+    return y_true, y_pred
 
-    # this is really heavy handed!
-    # have to evaluate the set twice 
-    def __init__(self, validation_data, n_classes, model_out_path, batch_size=4, two_headed_net=False):
-        super(F1Score, self).__init__()
-        self.validation_data = validation_data
-        self.batch_size = batch_size
-        self.n_classes = n_classes
-        self.model_out_path = os.path.splitext(model_out_path)[0]
-        self.two_headed_net = two_headed_net
-        if self.two_headed_net:
-            self.model_out_path += "epoch-{}-f1-{}.h5"
-        else:
-            self.model_out_path += "epoch-{}-f1-{}.h5"
-        self.f1_scores = []
 
-    def on_train_begin(self, logs={}):
-        pass
-    
-    def on_epoch_end(self, epochs, logs):
-        # 5.4.1 For each validation batch
-        cmat, prec, recall = confusion_matrix_from_generator(self.validation_data,
-                batch_size=self.batch_size, model=self.model, n_classes=self.n_classes,
-                multi_output=self.two_headed_net)
-        print('n pixels per class:', np.sum(cmat, axis=1)) 
-        print(prec)
-        print(recall)
-        precision_irrigated = prec[0]
-        recall_irrigated = recall[0]
-        f1 = 2*(precision_irrigated * recall_irrigated) / (precision_irrigated + recall_irrigated)
-        if np.isnan(f1): 
-            return 
-        outp = self.model_out_path.format(epochs, f1)
-        print('saving', outp)
-        if not os.path.isfile(outp):
-            self.model.save(outp) # maybe get some space savings
-        return
+class StreamingF1Score(Metric):
+
+    def __init__(self, name='f1', num_classes=2, **kwargs):
+        super(StreamingConfusionMatrix, self).__init__(name=name, **kwargs)
+        self.cmats = self.add_weight(name='cmats', shape=(num_classes, 
+            num_classes), dtype=tf.float32, initializer='zeros')
+        self.num_classes = num_classes
+
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true, y_pred = mask_unlabeled_values(y_true, y_pred)
+        y_true = tf.reshape(y_true, [-1])
+        y_pred = tf.reshape(y_pred, [-1])
+        self.cmats.assign_add(tf.cast(tf.math.confusion_matrix(y_true,
+           y_pred, num_classes=self.num_classes), tf.float32))
+        
+
+    def reset_states(self):
+        tf.print(self.cmats, output_stream='file://cmat.out')
+        K.batch_set_value([(v, np.zeros((self.num_classes, self.num_classes),
+            dtype=np.float32)) for v in self.variables])
+
+
+    def result(self):
+        f1 = self._result(self.cmats)
+        return tf.reduce_mean(f1)
+
+
+    def _result(self, cmats):
+        # returns diagonals of shape (num_classes,).
+        prec = cmats / tf.reduce_sum(cmats, axis=1)
+        rec = cmats / tf.reduce_sum(cmats, axis=0)
+        prec = tf.linalg.tensor_diag_part(prec)
+        rec = tf.linalg.tensor_diag_part(rec)
+        f1 = 2*(prec*rec)/(rec+prec)
+        return f1
+
 
 def softmax(arr, count_dim=0):
     arr = np.exp(arr)
@@ -199,14 +215,6 @@ def timeseries_confusion_matrix_from_generator(valid_generator, batch_size, mode
             stdout.write("{}/{}\r".format(count, len(valid_generator)))
 
     return out_cmat, 0, 2 
-
-
-
-
-
-
-
-
 
 
 def confusion_matrix_from_generator(valid_generator, batch_size, model, n_classes=2, print_mat=False, multi_output=False):

@@ -139,3 +139,4 @@ fully-conv-classification/ensemble_models/
 fully-conv-classification/precision_and_recall_multiple_files.py
 fully-conv-classification/plot_cmat.py
 fully-conv-classification/shapefile_data/
+fully-conv-classification/tifs_and_pngs/
