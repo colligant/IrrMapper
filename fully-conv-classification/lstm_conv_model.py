@@ -1,37 +1,38 @@
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
 import tensorflow.keras.layers as kl
 from tensorflow.keras.models import Model, Sequential
 from tensorflow.keras.applications.vgg16 import VGG16
 
-# use VGG as encoder since we're working with rgb
-encoder = Sequential()
-encoder.add(kl.Conv2D(16, 3, input_shape=(120, 60, 1)))
-encoder.add(kl.Conv2D(16, 3))
-encoder.add(kl.MaxPooling2D())
-encoder.add(kl.Conv2D(16, 3))
-encoder.add(kl.Conv2D(16, 3))
-encoder.add(kl.Flatten()) # Not sure if this if the proper way to do this.
+def model():
+    encoder = Sequential()
+    encoder.add(kl.Conv2D(32, 3, input_shape=(100, 100, 3), padding='same',
+        activation='relu'))
+    encoder.add(kl.Conv2D(32, 3, padding='same', activation='relu'))
+    encoder.add(kl.MaxPooling2D())
+    encoder.add(kl.Conv2D(64, 3, padding='same', activation='relu'))
+    encoder.add(kl.Conv2D(64, 3, padding='same', activation='relu'))
 
-rnn = Sequential()
-rnn = kl.GRU(64, return_sequences=False, input_shape=(120, 60))
+    ann = Sequential()
+    ann = kl.ConvLSTM2D(filters=64, kernel_size=(3,3),
+            return_sequences=True, padding='same', input_shape=(None, None, None, 3))
+    ann = kl.ConvLSTM2D(filters=64, kernel_size=(3,3),
+            return_sequences=False, padding='same')
+    ann = kl.ConvLSTM2D(filters=64, kernel_size=(3,3),
+            return_sequences=False, padding='same', input_shape=(None, None, None, 3))
 
-decoder = Sequential()
-decoder.add(kl.Reshape((60, 30, 16)))
-decoder.add(kl.Conv2D(16, 3))
-decoder.add(kl.Conv2D(16, 3))
-decoder.add(kl.UpSampling2D())
-decoder.add(kl.Conv2D(16, 3))
-decoder.add(kl.Conv2D(16, 3))
-decoder.add(kl.Conv2D(4, 1))
+    decoder = Sequential()
+    decoder.add(kl.Conv2D(64, 3, padding='same', activation='relu'))
+    decoder.add(kl.Conv2D(64, 3, padding='same', activation='relu'))
+    decoder.add(kl.UpSampling2D())
+    decoder.add(kl.Conv2D(32, 3, padding='same', activation='relu'))
+    decoder.add(kl.Conv2D(32, 3, padding='same', activation='relu'))
+    decoder.add(kl.Conv2D(3, 1, padding='same', activation='softmax'))
 
-inp = kl.Input(shape=(5, 120, 60, 1))
-model = kl.TimeDistributed(encoder)(inp)
-model = rnn(model)
-model = decoder(model)
-
-model = Model(inputs=inp, outputs=model)
-
-model.summary()
-
+    inp = kl.Input(shape=(None, None, None, 3))
+    model = kl.TimeDistributed(encoder)(inp)
+    model = ann(model)
+    model = decoder(model)
+    model = Model(inputs=inp, outputs=model)
+    return model

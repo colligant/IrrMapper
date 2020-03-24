@@ -111,7 +111,7 @@ def masked_categorical_xent(y_true, y_pred):
     # wait what? I don't need to even mask this!
     # the one_hot matrix contains depthwise 0s 
     # where there isn't data...
-    y_true_sum = tf.math.reduce_sum(y_true, axis=-1)
+    y_true_sum = tf.math.reduce_sum(y_true, axis=1)
     mask = tf.not_equal(y_true_sum, 0)
     y_true = tf.boolean_mask(y_true, mask)
     y_pred = tf.boolean_mask(y_pred, mask)
