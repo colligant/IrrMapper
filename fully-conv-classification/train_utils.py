@@ -13,9 +13,11 @@ import pdb
 from scipy.special import expit
 from sklearn.metrics import confusion_matrix
 from tensorflow.keras.models import load_model
+from tensorflow.keras import backend as K
 from tensorflow.keras.models import Model
 from sys import stdout
 from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.metrics import Metric
 from collections import defaultdict, namedtuple
 from multiprocessing import Pool
 from random import sample, shuffle
@@ -38,12 +40,20 @@ def mask_unlabeled_values(y_true, y_pred):
 
 
 class StreamingF1Score(Metric):
+    '''
+    Stateful metric class to accumulate confusion matrices
+    and calculate f1 score from them.
+    focus_on_class only reports f1 score for the class labeled with
+    the integer that is passed in.
+    '''
 
-    def __init__(self, name='f1', num_classes=2, **kwargs):
-        super(StreamingConfusionMatrix, self).__init__(name=name, **kwargs)
+    def __init__(self, name='f1', num_classes=2, 
+            focus_on_class=None, **kwargs):
+        super(StreamingF1Score, self).__init__(name=name, **kwargs)
         self.cmats = self.add_weight(name='cmats', shape=(num_classes, 
             num_classes), dtype=tf.float32, initializer='zeros')
         self.num_classes = num_classes
+        self.focus_on_class = focus_on_class
 
 
     def update_state(self, y_true, y_pred, sample_weight=None):
@@ -62,7 +72,10 @@ class StreamingF1Score(Metric):
 
     def result(self):
         f1 = self._result(self.cmats)
-        return tf.reduce_mean(f1)
+        if self.focus_on_class is not None:
+            return f1[self.focus_on_class]
+        else:
+            return tf.reduce_mean(f1)
 
 
     def _result(self, cmats):

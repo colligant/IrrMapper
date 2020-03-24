@@ -1,11 +1,8 @@
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow as tf
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
-config = tf.ConfigProto()
-config.gpu_options.allow_growth = True
-sess = tf.Session(config=config)
+#tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
@@ -54,22 +51,25 @@ def lr_schedule(epoch):
 if __name__ == '__main__':
 
     model = small_unet_smarter((None, None, 39))
+
     train_path = '/home/thomas/ssd/training-data-l8-no-centroid/train'
     test_path = '/home/thomas/ssd/training-data-l8-no-centroid/test'
 
-    train_generator = StackDataGenerator(train_path, 16, 
+    train_generator = StackDataGenerator(train_path, 2, 
             only_irrigated=False)
 
     test_generator = StackDataGenerator(test_path, 32, 
             only_irrigated=False, training=False)
 
+    sf1 = StreamingF1Score(num_classes=3, focus_on_class=0)
+
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
-            metrics=[m_acc])
+            metrics=[m_acc, sf1])
 
-    model.summary()
+ #   model.summary()
 
-    model_name = 'model_{val_m_acc:.3f}.h5'
-    model_dir = 'newlrschedule'
+    model_name = 'model_{val_m_acc:.3f}-{val_f1:.3f}.h5'
+    model_dir = 'recording-f1'
     model_out_path = 'models/non-recurrent/{}/'.format(model_dir)
 
 
@@ -78,21 +78,20 @@ if __name__ == '__main__':
 
     model_out_path += model_name
 
+    # Callbacks
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
-            monitor='val_m_acc') 
-    sf1 = StreamingF1Score(num_classes=3)
+            monitor='val_f1') 
 
     if not os.path.isfile(model_out_path):
-
         model.fit_generator(train_generator,
                 epochs=1000,
                 validation_data=test_generator,
                 validation_freq=1,
                 callbacks=[chpt, lr],
-                use_multiprocessing=True
-                workers=12,
+                use_multiprocessing=False,
+                workers=1,
                 verbose=True)
         model.save('full.h5')
     else:
