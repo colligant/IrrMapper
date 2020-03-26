@@ -2,7 +2,7 @@ import os
 # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 # os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow as tf
-#tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
+tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.ERROR)
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
@@ -45,7 +45,7 @@ def lr_schedule(epoch):
         rlr = lr / 8
     if epoch > 500:
         rlr = lr / 16
-    print('Learning rate: ', rlr)
+    tf.summary.scalar('learning rate', data=rlr, step=epoch)
     return rlr
 
 if __name__ == '__main__':
@@ -55,7 +55,7 @@ if __name__ == '__main__':
     train_path = '/home/thomas/ssd/training-data-l8-no-centroid/train'
     test_path = '/home/thomas/ssd/training-data-l8-no-centroid/test'
 
-    train_generator = StackDataGenerator(train_path, 2, 
+    train_generator = StackDataGenerator(train_path, 16, 
             only_irrigated=False)
 
     test_generator = StackDataGenerator(test_path, 32, 
@@ -71,25 +71,33 @@ if __name__ == '__main__':
     model_name = 'model_{val_m_acc:.3f}-{val_f1:.3f}.h5'
     model_dir = 'recording-f1'
     model_out_path = 'current_models/non-recurrent/{}/'.format(model_dir)
-
+    tb_path = os.path.join(model_out_path, 'logs')
 
     if not os.path.isdir(model_out_path):
         os.makedirs(model_out_path)
+    if not os.path.isdir(tb_path):
+        os.makedirs(tb_path)
 
     model_out_path += model_name
 
     # Callbacks
+    file_writer = tf.summary.create_file_writer(tb_path + "/metrics")
+    file_writer.set_as_default()
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
-            monitor='val_f1') 
+            monitor='val_f1', mode='max') 
+
+    print(tb_path)
+    tb = TensorBoard(log_dir=tb_path,
+                     update_freq='epoch')
 
     if not os.path.isfile(model_out_path):
         model.fit_generator(train_generator,
                 epochs=1000,
                 validation_data=test_generator,
                 validation_freq=1,
-                callbacks=[chpt, lr],
+                callbacks=[chpt, lr, tb],
                 use_multiprocessing=False,
                 workers=1,
                 verbose=True)

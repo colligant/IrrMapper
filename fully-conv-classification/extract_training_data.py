@@ -679,7 +679,7 @@ if __name__ == '__main__':
     # 3. Just images from June. [ ]
     image_directory = '/home/thomas/ssd/rgb-surf/'
     shapefiles = glob('shapefile_data/test/*.shp') + glob('shapefile_data/train/*.shp')
-    training_root_directory = '/home/thomas/ssd/training-data-l8-no-centroid-may-oct/'
+    training_root_directory = '/home/thomas/ssd/training-data-l8-centroid-may-oct/'
     images = glob(os.path.join(image_directory, "*tif"))
     path_row_to_images = bin_images_into_path_row_year(images)
     if not os.path.isdir(training_root_directory):
@@ -697,10 +697,14 @@ if __name__ == '__main__':
         test_shapefiles = all_matching_shapefiles(f, 'shapefile_data/test/', assign_shapefile_year)
         train_shapefiles = all_matching_shapefiles(f, 'shapefile_data/train/',
                 assign_shapefile_year)
+
         test_centroids = list(map(isirr, test_shapefiles))
         train_centroids = list(map(isirr, train_shapefiles))
         test_centroids = list(map(centroids_of_polygons, test_centroids))
         train_centroids = list(map(centroids_of_polygons, train_centroids))
+
+        test_centroids = [None]*len(train_centroids)
+
         for e in test_shapefiles + train_shapefiles:
             done.add(e)
         bs = os.path.splitext(os.path.basename(f))[0]
@@ -711,4 +715,4 @@ if __name__ == '__main__':
         else: 
             extract_training_data_over_path_row_rgb(image_filenames, [test_shapefiles,
                 train_shapefiles], training_root_directory, year=year, tile_size=tile_size,
-                test_train_centroids=[test_centroids, train_centroids], oversample=False)
+                test_train_centroids=[test_centroids, train_centroids], oversample=True)

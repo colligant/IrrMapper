@@ -148,9 +148,11 @@ class SeriesDataGenerator(Sequence):
 
 
 class StackDataGenerator(Sequence): 
+
+
     def __init__(self, data_directory, batch_size, 
             image_suffix='*.tif', training=True, only_irrigated=False,
-            random_start_date=False):
+            random_start_date=False, steps_per_epoch=None):
 
         self.classes = [d for d in os.listdir(os.path.join(data_directory, 'images')) if \
                 os.path.isdir(os.path.join(data_directory, 'images', d))]
@@ -161,6 +163,7 @@ class StackDataGenerator(Sequence):
             raise ValueError('no directories in data directory {}'.format(data_directory))
 
         self.random_start_date = random_start_date
+        self.steps_per_epoch = steps_per_epoch
         self.data_directory = data_directory
         self.training = training
         self.batch_size = batch_size
@@ -269,17 +272,22 @@ class StackDataGenerator(Sequence):
         if self.training:
             self._create_file_list()
         else:
-            indices = np.random.choice(len(self.images), size=len(self.images), replace=False)
-            self.masks = list(np.asarray(self.masks)[indices])
-            self.images = list(np.asarray(self.images)[indices])
+            # do nothing...
+            pass
+
 
     def __len__(self):
+        if self.steps_per_epoch is not None:
+            return self.steps_per_epoch
+
         return int(np.ceil(self.n_instances // self.batch_size))
 
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    train_path = '/home/thomas/ssd/training-data-l8-no-centroid-may-oct/test/'
-    dg = StackDataGenerator(train_path, 1, training=False)
+    train_path = '/home/thomas/ssd/training-data-l8-centroid-may-oct/train'
+    dg = StackDataGenerator(train_path, 16, training=False)
     print(len(dg))
+    for i in dg.class_to_image_files: 
+        print(i, len(dg.class_to_image_files[i]))
     # for i, m in dg:
