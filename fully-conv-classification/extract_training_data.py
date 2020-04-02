@@ -543,11 +543,12 @@ def in_target_year(filename, year):
     else:
         return False
 
-def in_target_daterange(filename, year):
+def in_target_daterange(filename, year, bmonth=4, bday=15,
+        emonth=10, eday=15):
 
     d = parse_date(filename)
-    begin = datetime.datetime(year=year, month=4, day=15)
-    end = datetime.datetime(year=year, month=10, day=15)
+    begin = datetime.datetime(year=year, month=bmonth, day=bday)
+    end = datetime.datetime(year=year, month=emonth, day=eday)
 
     if d >= begin and d <= end:
         return True
@@ -565,19 +566,15 @@ def extract_training_data_over_path_row_rgb(image_filenames, test_train_shapefil
         if in_target_year(f, year):
             filtered_to_year.append(f)
 
-    for f in filtered_to_year:
-        assert(parse_date(f).year == year)
-
-    filtered_to_year = [f for f in filtered_to_year if in_target_daterange(f, year)]
+    # filtered_to_year = [f for f in filtered_to_year if in_target_daterange(f, year)]
 
     if not len(filtered_to_year):
         print('skipping', image_filenames[0])
         return
     image_stack, target_meta, target_filename, _ = stack_rgb_images_from_list_of_filenames_sorted_by_date(filtered_to_year)
-    print(os.path.basename(filtered_to_year[0]), parse_date(filtered_to_year[0]),
-            parse_date(filtered_to_year[-1]), len(filtered_to_year))
-    print(image_stack.shape)
-    if image_stack.shape[0] < 27:
+
+    if image_stack.shape[0] < 39:
+        print("not extracting data for {}".format(os.path.basename(filtered_to_year[0])))
         return
     test_dir = os.path.join(training_data_directory, "test")
     train_dir = os.path.join(training_data_directory, "train")
@@ -608,6 +605,9 @@ def extract_training_data_over_path_row_rgb(image_filenames, test_train_shapefil
     for test_train, shapefiles, centroid_shapefiles in zip(['test', 'train'], 
             test_train_shapefiles, test_train_centroids):
 
+        if shapefiles.count(None) == len(shapefiles):
+            continue
+
         class_labels = create_class_labels(shapefiles, assign_shapefile_class_code,
                 target_filename)
         # 3-channel label...
@@ -626,6 +626,8 @@ def extract_training_data_over_path_row_rgb(image_filenames, test_train_shapefil
                         continue
                     class_label_tile[class_label_tile.mask] = -9999
                     image_tile = image_stack[:, i:i+tile_size, j:j+tile_size]
+                    if np.any(image_tile) == 0:
+                        continue
                     unique_image_filename = os.path.join(out_dir, 'images', class_name, 
                             "{}_{}.tif".format(i, j))
                     unique_mask_filename = os.path.join(out_dir, 'masks', class_name,
@@ -655,6 +657,8 @@ def extract_training_data_over_path_row_rgb(image_filenames, test_train_shapefil
                     class_name = _assign_class_name_to_tile(class_label_tile)
                     if class_name is None:
                         continue
+                    if np.any(image_tile) == 0:
+                        continue
                     class_label_tile[class_label_tile.mask] = -9999
                     unique_image_filename = os.path.join(out_dir, 'images', class_name, 
                             "{}_{}.tif".format(x, y))
@@ -679,7 +683,7 @@ if __name__ == '__main__':
     # 3. Just images from June. [ ]
     image_directory = '/home/thomas/ssd/rgb-surf/'
     shapefiles = glob('shapefile_data/test/*.shp') + glob('shapefile_data/train/*.shp')
-    training_root_directory = '/home/thomas/ssd/training-data-l8-centroid-may-oct/'
+    training_root_directory = '/home/thomas/ssd/training-data-l8-centroid-full-year/'
     images = glob(os.path.join(image_directory, "*tif"))
     path_row_to_images = bin_images_into_path_row_year(images)
     if not os.path.isdir(training_root_directory):
@@ -688,7 +692,7 @@ if __name__ == '__main__':
     n_classes = 3
     done = set()
 
-    tile_size = 216
+    tile_size = 224
     year = 2013
     
     for f in shapefiles:
@@ -697,16 +701,24 @@ if __name__ == '__main__':
         test_shapefiles = all_matching_shapefiles(f, 'shapefile_data/test/', assign_shapefile_year)
         train_shapefiles = all_matching_shapefiles(f, 'shapefile_data/train/',
                 assign_shapefile_year)
+        
+        for e in test_shapefiles + train_shapefiles:
+            done.add(e)
 
-        test_centroids = list(map(isirr, test_shapefiles))
-        train_centroids = list(map(isirr, train_shapefiles))
+        # test_centroids = list(map(isirr, test_shapefiles))
+        # train_centroids = list(map(isirr, train_shapefiles))
+        test_centroids = test_shapefiles
+        train_centroids = train_shapefiles
+
         test_centroids = list(map(centroids_of_polygons, test_centroids))
         train_centroids = list(map(centroids_of_polygons, train_centroids))
 
-        test_centroids = [None]*len(train_centroids)
+        # Don't extract any test data since I already have it saved.
+        test_centroids = [None]*len(test_centroids)
+        test_shapefiles = [None]*len(test_shapefiles)
 
-        for e in test_shapefiles + train_shapefiles:
-            done.add(e)
+        # train_centroids = [None]*len(train_centroids)
+
         bs = os.path.splitext(os.path.basename(f))[0]
         _, path, row = bs[-7:].split("_")
         image_filenames = path_row_to_images['{}_{}_{}'.format(year, path, row)]

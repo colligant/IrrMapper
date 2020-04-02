@@ -135,11 +135,11 @@ def small_unet_residual_connections(input_shape):
     return model
 
 
-def small_unet_smarter(input_shape):
+def small_unet_smarter(input_shape, base=4):
 
     inp = Input(input_shape)
     exponent = 2
-    base = 5
+    base = base
 
     c1 = ConvBNRelu(inp, filters=base**exponent)
     c2 = ConvBNRelu(c1, filters=base**exponent)
@@ -453,13 +453,13 @@ def conv_lstm_2d(input_shape, n_classes=3):
     return seq
 
 
-def ConvBlock(x, filters=64):
-    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
-            kernel_regularizer=l2(0.01))(x)
+def ConvBlock(x, filters=64, padding='same'):
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+            kernel_regularizer=l2(0.001))(x)
     x = BatchNormalization()(x)
     x = Activation(relu)(x)
-    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
-        kernel_regularizer=l2(0.01))(x)
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+        kernel_regularizer=l2(0.001))(x)
     x = BatchNormalization()(x)
     return Activation(relu)(x)
 
@@ -480,7 +480,7 @@ def ResBlock(x, filters=64, snd_conv=False):
 
 def ConvBNRelu(x, filters=64):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
-            kernel_regularizer=l2(0.01))(x)
+            kernel_regularizer=l2(0.001))(x)
     x = BatchNormalization()(x)
     return Activation(relu)(x)
 

@@ -14,6 +14,7 @@ from scipy.special import expit
 from sklearn.metrics import confusion_matrix
 from tensorflow.keras.models import load_model
 from tensorflow.keras import backend as K
+from tensorflow.keras.regularizers import Regularizer
 from tensorflow.keras.models import Model
 from sys import stdout
 from tensorflow.keras.callbacks import Callback
@@ -22,6 +23,36 @@ from collections import defaultdict, namedtuple
 from multiprocessing import Pool
 from random import sample, shuffle
 from glob import glob
+
+
+class FilterOrthog(Regularizer):
+
+    def __init__(self, c):
+        self.c = c
+
+    def __call__(self, x):
+
+        tmp = x*tf.transpose(x)
+        return self.c * tf.norm(tmp - tf.eye(tmp.get_shape()))
+
+    def get_config(self):
+        return {"ortho":float(self.c)}
+
+
+
+def mask_unlabeled_values_numpy(y_true, y_pred):
+    '''
+    y_pred: softmaxed tensor
+    y_true: one-hot tensor of labels
+    Returns two vectors of labels. Assumes input
+    tensors are 4-dimensional (batchxrowxcolxdepth)
+    '''
+    mask = np.not_equal(np.sum(y_true, axis=-1), 0)
+    y_true = np.argmax(y_true, axis=-1)
+    y_pred = np.argmax(y_pred, axis=-1)
+    y_true = y_true[mask]
+    y_pred = y_pred[mask]
+    return y_true, y_pred
 
 
 def mask_unlabeled_values(y_true, y_pred):
@@ -230,75 +261,47 @@ def timeseries_confusion_matrix_from_generator(valid_generator, batch_size, mode
     return out_cmat, 0, 2 
 
 
-def confusion_matrix_from_generator(valid_generator, batch_size, model, n_classes=2, print_mat=False, multi_output=False):
+def _prepare_time_dependent_batch(image_stack):
+
+    # image_stack is of shape
+    # (heightxwidthxn_channels)
+    # this fn. will return timestepsxheightxwidthx3
+    # assumes that image_stack is formed from rgb images
+    batches = []
+    for batch in image_stack:
+        seq = []
+        for i in np.arange(0, batch.shape[-1], 3):
+            seq.append(batch[:, :, i:i+3])
+        batches.append(seq)
+
+    return np.stack(batches)
+
+def confusion_matrix_from_generator(valid_generator, batch_size, model, time_dependent=False,
+        n_classes=2, print_mat=True, multi_output=False):
     out_cmat = np.zeros((n_classes, n_classes))
+    labels = np.arange(n_classes)
     if not len(valid_generator):
         raise ValueError("Length of validation generator is 0")
-    with Pool(batch_size) as pool:
-        for cnt, (batch_x, y_true) in enumerate(valid_generator):
-            y_true = y_true[0] # pull irrigated ground truth
-            preds = model.predict(batch_x)
-            if multi_output:
-                preds = preds[0]
-            sz = batch_x[0].shape[0]
-            try:
-                y_trues = [np.squeeze(y_true[i]) for i in range(sz)]
-                y_preds = [np.squeeze(preds[i]) for i in range(sz)]
-            except IndexError as e:
-                print(e)
-                continue
-            cmats = pool.starmap(_preprocess_masks_and_calculate_cmat, zip(y_trues, y_preds,
-                [n_classes]*batch_size))
-            for cmat in cmats:
-                out_cmat += cmat
-            stdout.write('{}/{}\r'.format(cnt, len(valid_generator)))
-
-        if print_mat:
-            print(out_cmat)
-        precision_dict = {}
-        recall_dict = {}
-        for i in range(n_classes):
-            precision_dict[i] = 0
-            recall_dict[i] = 0
-        for i in range(n_classes):
-            precision_dict[i] = out_cmat[i, i] / np.sum(out_cmat[i, :]) # row i
-            recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) # column i
-        return out_cmat, recall_dict, precision_dict
-
-
-def lr_schedule(epoch, initial_learning_rate, efold):
-    lr = initial_learning_rate
-    return float(lr*np.exp(-epoch/efold))
-
-
-def save_model_info(root_directory, loss_func, accuracy, loss, class_weights, classes_to_augment,
-        initial_learning_rate, pos_weight, cmat, precision, recall):
-    directory_name = os.path.join("./models", "{:.3f}".format(accuracy))
-    if os.path.isdir(directory_name):
-        directory_name = os.path.join("./models", "{:.5f}acc".format(accuracy))
-    filename = os.path.join(directory_name, "run_info_{:.3f}acc.txt".format(accuracy))
-    os.rename(root_directory, directory_name)
-    print(filename)
-    with open(filename, 'w') as f:
-        print("acc: {:.3f}".format(accuracy), file=f)
-        print("loss_func: {}".format(loss_func), file=f)
-        print("loss: {}".format(loss), file=f)
-        print("weights: {}".format(class_weights), file=f)
-        print("augment scheme: {}".format(classes_to_augment), file=f)
-        print("lr: {}".format(initial_learning_rate), file=f)
-        print('pos_weight: {}'.format(pos_weight), file=f)
-        print('confusion_matrix: {}'.format(cmat), file=f)
-        print('precision: {}'.format(precision), file=f)
-        print('recall: {}'.format(recall), file=f)
-
-
-def construct_parser():
-    parser = argparse.ArgumentParser(fromfile_prefix_chars='@')
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001)
-    parser.add_argument("-nc", '--n_classes', type=int, default=1)
-    parser.add_argument("-p", '--pos-weight', type=float, default=1.0)
-    return parser
-
+    for cnt, (batch_x, y_true) in enumerate(valid_generator):
+        if time_dependent:
+            batch_x = _prepare_time_dependent_batch(batch_x)
+        y_pred = model.predict(batch_x).squeeze()
+        y_pred = y_pred[:, -1, :, :]
+        y_true, y_pred = mask_unlabeled_values_numpy(y_true, y_pred)
+        cmat = confusion_matrix(y_true, y_pred, labels=labels)
+        out_cmat += cmat
+        stdout.write('{}/{}\r'.format(cnt, len(valid_generator)))
+    if print_mat:
+        print(out_cmat)
+    precision_dict = {}
+    recall_dict = {}
+    for i in range(n_classes):
+        precision_dict[i] = 0
+        recall_dict[i] = 0
+    for i in range(n_classes):
+        precision_dict[i] = out_cmat[i, i] / np.sum(out_cmat[i, :]) # row i
+        recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) # column i
+    return out_cmat, recall_dict, precision_dict
 
 if __name__ == '__main__':
     pass

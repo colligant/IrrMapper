@@ -1,4 +1,5 @@
 import os
+#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import argparse
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.FATAL)
@@ -7,49 +8,43 @@ from glob import glob
 from numpy import sum as nsum
 
 from losses import *
-from tifs_and_pngs.data_generators import *
-from tifs_and_pngs.hpc_datagen import StackDataGenerator
+from models import small_unet_smarter
+from data_generators import StackDataGenerator
 from train_utils import confusion_matrix_from_generator, timeseries_confusion_matrix_from_generator
 
 
 if __name__ ==  '__main__':
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, required=True)
-    parser.add_argument('--test-data-path', type=str, required=True)
-    parser.add_argument('--target-class', type=str)
-    parser.add_argument('--batch-size', type=int, default=4)
-    parser.add_argument('--n-classes', type=int, default=4)
-    parser.add_argument('--multi-output', action='store_false')
-    parser.add_argument('--use-gpu', action='store_true')
-    args = parser.parse_args()
-    if not args.use_gpu:
-        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+    #import numpy as np
+    #arr = np.array([[8.3913000e+04,1.8664000e+04,1.0272000e+04],
+    #                 [1.6963000e+04,1.1221567e+07,7.2342400e+05],
+    #                 [1.1794000e+04,1.7684930e+06,3.9401140e+06]])
+    #n_classes = 3
+    #precision_dict = {}
+    #recall_dict = {}
+    #for i in range(n_classes):
+    #    precision_dict[i] = 0
+    #    recall_dict[i] = 0
+    #for i in range(n_classes):
+    #    precision_dict[i] = arr[i, i] / np.sum(arr[i, :]) # row i
+    #    recall_dict[i] = arr[i, i] / np.sum(arr[:, i]) # column i
+    #print(precision_dict)
+    #print(recall_dict)
 
-    mfl = multiclass_focal_loss()
+    model = small_unet_smarter((None, None, 39), base=6)
+    model_path = './recurrent_0.878.h5'
+    model = tf.keras.models.load_model(model_path, custom_objects={'m_acc':m_acc})
+    batch_size = 8
+    test_data_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/test/'
+    n_classes = 3
 
-    custom_objects = {'mb':masked_binary_xent, 'multiclass_acc':multiclass_acc,
-            'binary_acc':binary_acc, 'masked_categorical_xent':masked_categorical_xent,
-            'multiclass_FL':mfl, 'm_acc':m_acc}
-    try:
-        model = load_model(args.model, custom_objects=custom_objects)
-    except ValueError as e:
-        print(e.args)
-        raise
-    batch_size = args.batch_size
-    try:
-        target_class = int(args.target_class)
-    except TypeError as e:
-        target_class = None
-    test_generator = StackDataGenerator(data_directory=args.test_data_path, batch_size=batch_size,
-            training=alse, target_classes=target_class)
-    test_generator = StackDataGenerator(data_directory=args.test_data_path,
-            batch_size=args.batch_size, training=False)
+    test_generator = StackDataGenerator(data_directory=test_data_path, batch_size=batch_size,
+            training=False, min_rgb_images=13)
     print(len(test_generator))
     cmat, prec, recall = confusion_matrix_from_generator(test_generator, batch_size, 
-            model, n_classes=args.n_classes)
+            model, n_classes=n_classes, time_dependent=True)
     #cmat, prec, recall = timeseries_confusion_matrix_from_generator(test_generator, batch_size, 
     #        model, n_classes=args.n_classes)
     print(cmat)
     print(nsum(cmat, axis=1))
-    print('model {} has \n p:{}\n r:{}'.format(args.model, prec, recall))
+    print('\n p:{}\n r:{}'.format(prec, recall))

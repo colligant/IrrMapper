@@ -24,12 +24,13 @@ def _load_image(f, image=False):
         im = src.read()
     return im
 
-MIN_IMAGES_PER_SEQUENCE = 13
+MIN_IMAGES_PER_SEQUENCE = 9
 
 
 class SeriesDataGenerator(Sequence): 
     def __init__(self, data_directory, batch_size, 
-            image_suffix='*.tif', training=True, only_irrigated=False):
+            image_suffix='*.tif', training=True, only_irrigated=False,
+            min_rgb_images=9):
         self.classes = [d for d in os.listdir(os.path.join(data_directory, 'images')) if \
                 os.path.isdir(os.path.join(data_directory, 'images', d))]
         if only_irrigated:
@@ -38,6 +39,7 @@ class SeriesDataGenerator(Sequence):
         if len(self.classes) == 0:
             raise ValueError('no directories in data directory {}'.format(data_directory))
         self.data_directory = data_directory
+        self.min_rgb_images = min_rgb_images
         self.training = training
         self.batch_size = batch_size
         self.resize = resize
@@ -119,7 +121,7 @@ class SeriesDataGenerator(Sequence):
         masks = self.masks[self.batch_size*idx:self.batch_size*(idx+1)]
         images = self.images[self.batch_size*idx:self.batch_size*(idx+1)]
         images = [_load_image(f) for f in images]
-        images = [self._conform_channels(image, MIN_IMAGES_PER_SEQUENCE) for image in images]
+        images = [self._conform_channels(image, self.min_rgb_images) for image in images]
         masks = [_to_categorical(_load_image(f)) for f in masks]
         images = np.swapaxes(np.asarray(images), 1, 3).astype(np.float)
         masks = np.swapaxes(np.asarray(masks), 1, 3).astype(np.float)
@@ -152,7 +154,8 @@ class StackDataGenerator(Sequence):
 
     def __init__(self, data_directory, batch_size, 
             image_suffix='*.tif', training=True, only_irrigated=False,
-            random_start_date=False, steps_per_epoch=None):
+            random_start_date=False, steps_per_epoch=None,
+            min_rgb_images=None):
 
         self.classes = [d for d in os.listdir(os.path.join(data_directory, 'images')) if \
                 os.path.isdir(os.path.join(data_directory, 'images', d))]
@@ -166,6 +169,7 @@ class StackDataGenerator(Sequence):
         self.steps_per_epoch = steps_per_epoch
         self.data_directory = data_directory
         self.training = training
+        self.min_rgb_images = min_rgb_images
         self.batch_size = batch_size
         self.image_suffix = image_suffix
         self.n_classes = len(self.classes)
@@ -258,7 +262,7 @@ class StackDataGenerator(Sequence):
         masks = self.masks[self.batch_size*idx:self.batch_size*(idx+1)]
         images = self.images[self.batch_size*idx:self.batch_size*(idx+1)]
         images = [_load_image(f) for f in images]
-        images = [self._conform_channels(image, MIN_IMAGES_PER_SEQUENCE, 
+        images = [self._conform_channels(image, self.min_rgb_images, 
             self.random_start_date) for image in images]
         masks = [_to_categorical(_load_image(f)) for f in masks]
         images = np.swapaxes(np.asarray(images), 1, 3).astype(np.float)
@@ -285,9 +289,7 @@ class StackDataGenerator(Sequence):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    train_path = '/home/thomas/ssd/training-data-l8-centroid-may-oct/train'
-    dg = StackDataGenerator(train_path, 16, training=False)
-    print(len(dg))
-    for i in dg.class_to_image_files: 
-        print(i, len(dg.class_to_image_files[i]))
-    # for i, m in dg:
+    train_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/train'
+    dg = StackDataGenerator(train_path, 1, training=True,
+            min_rgb_images=9)
+#    for i, m in dg:
