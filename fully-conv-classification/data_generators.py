@@ -215,6 +215,9 @@ class StackDataGenerator(Sequence):
             indices = np.random.choice(np.arange(len(self.images)), len(self.images), replace=False)
             self.images = list(np.asarray(self.images)[indices])
             self.masks = list(np.asarray(self.masks)[indices])
+            if self.steps_per_epoch is not None:
+                self.images = self.images[:self.steps_per_epoch*self.batch_size]
+                self.masks = self.masks[:self.steps_per_epoch*self.batch_size]
             self.n_instances = len(self.images)
         else:
             # just grab the whole dataset if not training for consistent 
@@ -289,7 +292,33 @@ class StackDataGenerator(Sequence):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    train_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/train'
+    train_path = '/home/thomas/ssd/training-data/training-data-l8-centroid-full-year/train'
     dg = StackDataGenerator(train_path, 1, training=True,
-            min_rgb_images=9)
-#    for i, m in dg:
+            min_rgb_images=9, only_irrigated=True)
+    print(len(dg))
+    for i, m in dg:
+        i = i.squeeze()
+        m = m.squeeze()
+        bl = np.zeros(i.shape[-1])
+        for k in range(0, i.shape[-1], 3):
+            if np.max(i[:, :, k:k+3]) > 6000:
+                bl[k:k+3] = False
+            else:
+                bl[k:k+3] = True
+
+        mean_im = i[:, :, bl.astype(bool)]
+        print(mean_im.shape, np.sum(bl.astype(bool)))
+        mean_im = np.mean(mean_im, axis=2)
+        mean_im = mean_im / np.max(mean_im)
+
+        for j in range(0, i.shape[-1], 3):
+            vis = i[:, :, j:j+3]
+            xx = np.max(vis)
+            vis = vis / np.max(vis)
+            fig, ax = plt.subplots(ncols=3)
+            ax[0].imshow(vis)
+            ax[0].set_title(bl[j//3])
+            ax[1].imshow(m)
+            ax[2].imshow(mean_im)
+            plt.suptitle(xx)
+            plt.show()

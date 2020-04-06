@@ -54,26 +54,29 @@ def lr_schedule(epoch):
 if __name__ == '__main__':
 
     # model = unet((None, None, 39), n_classes=3, initial_exp=5)
-    model = small_unet_smarter((None, None, 39), base=4)
+    model = small_unet_smarter((None, None, 39), base=5)
 
-    train_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/train'
+    train_path = '/home/thomas/ssd/training-data-l8-centroid-full-year/train'
     test_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/test'
 
-    train_generator = StackDataGenerator(train_path, 32, 
-            only_irrigated=False, min_rgb_images=13)
+    train_generator = StackDataGenerator(train_path, 16, 
+            only_irrigated=False, min_rgb_images=13, steps_per_epoch=100)
+    print(len(train_generator))
 
-    test_generator = StackDataGenerator(test_path, 64, 
+    test_generator = StackDataGenerator(test_path, 32, 
             only_irrigated=False, training=False, min_rgb_images=13)
+
+    print(len(test_generator))
 
     sf1 = StreamingF1Score(num_classes=3, focus_on_class=0)
 
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
-    model.summary()
+    # model.summary()
 
     model_name = 'model_{val_m_acc:.3f}-{val_f1:.3f}.h5'
-    model_dir = 'small-unet-full-year'
+    model_dir = 'larger-unet-full-year-centroid-larger-weight-decay'
     model_out_path = 'current_models/non-recurrent/{}/'.format(model_dir)
     tb_path = os.path.join(model_out_path, 'logs')
 

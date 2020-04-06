@@ -282,19 +282,22 @@ def _target_indices_from_class_labels(class_labels, tile_size):
 
 class_code_to_class_name = {0:'irrigated', 1:'unirrigated', 2:'uncultivated'}
 
-def _assign_class_name_to_tile(class_label_tile):
+def _assign_class_name_to_tile(class_label_tile, nodata=-9999):
     if np.any(class_label_tile == 0):
         return 'irrigated'
-    unique, counts = np.unique(class_label_tile, return_counts=True)
-    counts = counts[~unique.mask]
-    unique = unique[~unique.mask]
-    if len(counts) == 1:
-        cc = class_code_to_class_name[unique[0]]
-    else:
-        try:
+    labels = class_label_tile[~class_label_tile.mask]
+    labels = labels[labels != nodata]
+    unique, counts = np.unique(labels, return_counts=True)
+    if len(counts) == 0:
+        return None
+    try:
+        if len(counts) == 1:
+            cc = class_code_to_class_name[unique[0]]
+        else:
             cc = class_code_to_class_name[unique[np.argmax(counts)]]
-        except ValueError as e:
-            return None
+    except (ValueError, KeyError) as e:
+        pdb.set_trace()
+        return None
     return cc
 
 
@@ -433,7 +436,7 @@ def _check_dimensions_and_min_pixels(sub_one_hot, class_code, tile_size):
     return True
 
 
-def all_matching_shapefiles(to_match, shapefile_directory, assign_shapefile_year):
+def shapefiles_in_same_path_row(to_match, shapefile_directory, assign_shapefile_year):
     out = []
     pr = get_shapefile_path_row(to_match)
     year = assign_shapefile_year(to_match)
@@ -450,12 +453,15 @@ def make_border_labels(mask, border_width):
     return dm
 
 
-def stack_rgb_images_from_list_of_filenames_sorted_by_date(filenames):
+def stack_images_from_list_of_filenames_sorted_by_date(filenames):
+    filenames = sorted(filenames, key=lambda x: parse_date(x))
     first = True
     image_stack = None
     i = 0
     if not len(filenames):
-        raise ValueError('empty list for filenames')
+        print('empty list for filenames')
+        return (None, None, None, None)
+
     for filename in filenames:
         with rasopen(filename, 'r') as src:
             arr = src.read()
@@ -509,27 +515,52 @@ def bin_images_into_path_row_year(images):
         path_row_to_images[unique_key].append(image_file)
     return path_row_to_images
 
-def save_image_tile(image_tile, unique_filename, meta):
-    if os.path.isfile(unique_filename):
-        base = os.path.splitext(unique_filename)[0]
-        print('not overwriting')
-        unique_filename = base + '{}.tif'.format(str(time.time()))
-    with rasopen(unique_filename, 'w', **meta) as dst:
+
+def save_image_tile_and_mask(save_directory, image_tile, class_label_tile, image_meta, label_meta):
+
+    if np.any(image_tile == image_meta['nodata']):
+        print('not saving 1')
+        return
+    if np.all(class_label_tile.mask):
+        print('not saving 2')
+        return
+    cls = class_label_tile[~class_label_tile.mask]
+    if np.all(cls) == image_meta['nodata']:
+        print('not saving 3')
+        return 
+    cls = cls[cls != image_meta['nodata']]
+    unique, counts = np.unique(cls, return_counts=True)
+    if len(unique):
+        if len(unique) == 1:
+            class_name = class_code_to_class_name[unique[0]]
+        else:
+            class_name = class_code_to_class_name[unique[np.argmax(counts)]]
+
+    image_meta.update({'count':image_tile.shape[0], 'width':image_tile.shape[1],
+        'height':image_tile.shape[2]})
+    label_meta.update({'count':1, 'width':class_label_tile.shape[0],
+        'height':class_label_tile.shape[0]})
+
+    t_str = str(time.time())
+    out_image_dir = os.path.join(save_directory, 'images', class_name)
+    out_mask_dir = os.path.join(save_directory, 'masks', class_name)
+
+    print(out_image_dir)
+    if not os.path.isdir(out_image_dir):
+        os.makedirs(out_image_dir)
+    if not os.path.isdir(out_mask_dir):
+        os.makedirs(out_mask_dir)
+
+    with rasopen(out_image_dir + "/{}.tif".format(t_str), 'w', **image_meta) as dst:
         dst.write(image_tile)
+    with rasopen(out_mask_dir + "/{}.tif".format(t_str), 'w', **label_meta) as dst:
+        dst.write(np.expand_dims(class_label_tile, 0).astype(label_meta['dtype']))
 
 
-def save_image_tile_and_mask(image_tile, unique_image_filename,
-        class_label_tile, unique_mask_filename, image_meta, label_meta):
-    if os.path.isfile(unique_image_filename):
-        base_image = os.path.splitext(unique_image_filename)[0]
-        base_mask = os.path.splitext(unique_mask_filename)[0]
-        t = str(time.time())
-        unique_image_filename = base_image + '{}.tif'.format(t)
-        unique_mask_filename = base_mask + '{}.tif'.format(t)
-    with rasopen(unique_image_filename, 'w', **image_meta) as dst:
-        dst.write(image_tile)
-    with rasopen(unique_mask_filename, 'w', **label_meta) as dst:
-        dst.write(class_label_tile)
+
+
+
+
 
 
 def in_target_year(filename, year):
@@ -556,119 +587,84 @@ def in_target_daterange(filename, year, bmonth=4, bday=15,
         return False
     return (d >= begin and d <= end)
 
-def extract_training_data_over_path_row_rgb(image_filenames, test_train_shapefiles,
-        training_data_directory, year, tile_size=24, test_train_centroids=None,
-        oversample=False):
 
-    image_filenames = sorted(image_filenames, key=lambda x: parse_date(x))
-    filtered_to_year = []
-    for f in image_filenames:
-        if in_target_year(f, year):
-            filtered_to_year.append(f)
+#        if centroid_shapefiles.count(None) == 0 and oversample:
+#            sub = [s for s in centroid_shapefiles if s is not None]
+#            for s in sub:
+#                # print(s)
+#                shp = gpd.read_file(s)
+#                shp = shp[shp.geometry.notnull()]
+#                with rasopen(target_filename, 'r') as src:
+#                    # pyproj deprecated the +init syntax.
+#                    crs = CRS(src.crs['init'])
+#                    shp = shp.to_crs(crs)
+#                    features = get_features(shp)
+#
+#                x = [f['coordinates'][0] for f in features]
+#                y = [f['coordinates'][1] for f in features]
+#
+#                rows, cols = rowcol(src.transform, x, y)
+#                ts = tile_size // 2
+#                for x, y in zip(rows, cols):
+#                    image_tile = image_stack[:, x-ts:x+ts, y-ts:y+ts]
+#                    if np.any(image_tile) <= 0:
+#                        continue
+#                    class_label_tile = class_labels[:, x-ts:x+ts, y-ts:y+ts].copy()
+#                    if np.all(class_label_tile.mask):
+#                        continue
+#                    class_name = _assign_class_name_to_tile(class_label_tile)
+#                    if class_name is None:
+#                        continue
+#                    class_label_tile[class_label_tile.mask] = -9999
+#                    unique_image_filename = os.path.join(out_dir, 'images', class_name, 
+#                            "{}_{}.tif".format(x, y))
+#                    unique_mask_filename = os.path.join(out_dir, 'masks', class_name,
+#                            "{}_{}.tif".format(x, y))
+#                    save_image_tile_and_mask(image_tile, unique_image_filename,
+#                            class_label_tile, unique_mask_filename, image_meta, label_meta)
 
-    # filtered_to_year = [f for f in filtered_to_year if in_target_daterange(f, year)]
+def extract_training_data_with_raster_scan(image_stack, class_labels, 
+        image_meta, label_meta, save_directory, tile_size=224):
 
-    if not len(filtered_to_year):
-        print('skipping', image_filenames[0])
-        return
-    image_stack, target_meta, target_filename, _ = stack_rgb_images_from_list_of_filenames_sorted_by_date(filtered_to_year)
+    
+    assert(image_stack.shape[1] == class_labels.shape[0])
+    assert(image_stack.shape[2] == class_labels.shape[1])
+    tiles_y, tiles_x = _target_indices_from_class_labels(class_labels, tile_size)
+    for i in tiles_y:
+        for j in tiles_x:
+            image_tile = image_stack[:, i:i+tile_size, j:j+tile_size]
+            class_label_tile = class_labels[i:i+tile_size, j:j+tile_size]
 
-    if image_stack.shape[0] < 39:
-        print("not extracting data for {}".format(os.path.basename(filtered_to_year[0])))
-        return
-    test_dir = os.path.join(training_data_directory, "test")
-    train_dir = os.path.join(training_data_directory, "train")
-    if not os.path.isdir(test_dir):
-        os.mkdir(test_dir)
-    if not os.path.isdir(train_dir):
-        os.mkdir(train_dir)
-
-    for class_name in class_code_to_class_name.values():
-        out_train_image = os.path.join(train_dir, 'images', class_name)
-        out_train_mask = os.path.join(train_dir, 'masks', class_name)
-        out_test_image = os.path.join(test_dir, 'images', class_name)
-        out_test_mask = os.path.join(test_dir, 'masks', class_name)
-
-        for i in [out_train_image, out_train_mask, out_test_image, out_test_mask]:
-            if not os.path.isdir(i):
-                os.makedirs(i)
-
-    out_dirs = {'test':test_dir, 'train':train_dir}
-
-    label_meta = deepcopy(target_meta)
-    label_meta.update({'count':1, 'width':tile_size, 'height':tile_size})
-    image_meta = deepcopy(target_meta)
-    image_meta.update({'count':image_stack.shape[0], 'width':tile_size, 'height':tile_size})
-
-    if test_train_centroids is None:
-        test_train_centroids = [None]*len(test_train_centroids)
-    for test_train, shapefiles, centroid_shapefiles in zip(['test', 'train'], 
-            test_train_shapefiles, test_train_centroids):
-
-        if shapefiles.count(None) == len(shapefiles):
-            continue
-
-        class_labels = create_class_labels(shapefiles, assign_shapefile_class_code,
-                target_filename)
-        # 3-channel label...
-        class_labels = np.sum(class_labels, axis=0) / class_labels.shape[0]
-        class_labels = np.expand_dims(class_labels, 0).astype(np.int16)
-
-        out_dir = out_dirs[test_train]
-        # extract with raster scan
-        for i in range(0, image_stack.shape[1], tile_size):
-            for j in range(0, image_stack.shape[2], tile_size):
-                class_label_tile = class_labels[:, i:i+tile_size, j:j+tile_size]
-                # if np.any(class_label_tile == 0) or np.all(~class_label_tile.mask):
-                if not np.all(class_label_tile.mask):
-                    class_name = _assign_class_name_to_tile(class_label_tile)
-                    if class_name is None:
-                        continue
-                    class_label_tile[class_label_tile.mask] = -9999
-                    image_tile = image_stack[:, i:i+tile_size, j:j+tile_size]
-                    if np.any(image_tile) == 0:
-                        continue
-                    unique_image_filename = os.path.join(out_dir, 'images', class_name, 
-                            "{}_{}.tif".format(i, j))
-                    unique_mask_filename = os.path.join(out_dir, 'masks', class_name,
-                            "{}_{}.tif".format(i, j))
-                    save_image_tile_and_mask(image_tile, unique_image_filename,
-                            class_label_tile, unique_mask_filename, image_meta, label_meta)
-        if centroid_shapefiles.count(None) != 0 and oversample:
-            sub = [s for s in centroid_shapefiles if s is not None]
-            for s in sub:
-                # print(s)
-                shp = gpd.read_file(s)
-                shp = shp[shp.geometry.notnull()]
-                with rasopen(target_filename, 'r') as src:
-                    # pyproj deprecated the +init syntax.
-                    crs = CRS(src.crs['init'])
-                    shp = shp.to_crs(crs)
-                    features = get_features(shp)
-
-                x = [f['coordinates'][0] for f in features]
-                y = [f['coordinates'][1] for f in features]
-
-                rows, cols = rowcol(src.transform, x, y)
-                ts = tile_size // 2
-                for x, y in zip(rows, cols):
-                    image_tile = image_stack[:, x-ts:x+ts, y-ts:y+ts]
-                    class_label_tile = class_labels[:, x-ts:x+ts, y-ts:y+ts].copy()
-                    class_name = _assign_class_name_to_tile(class_label_tile)
-                    if class_name is None:
-                        continue
-                    if np.any(image_tile) == 0:
-                        continue
-                    class_label_tile[class_label_tile.mask] = -9999
-                    unique_image_filename = os.path.join(out_dir, 'images', class_name, 
-                            "{}_{}.tif".format(x, y))
-                    unique_mask_filename = os.path.join(out_dir, 'masks', class_name,
-                            "{}_{}.tif".format(x, y))
-                    save_image_tile_and_mask(image_tile, unique_image_filename,
-                            class_label_tile, unique_mask_filename, image_meta, label_meta)
+            save_image_tile_and_mask(save_directory, image_tile, class_label_tile, image_meta,
+                    label_meta)
 
 
+def extract_training_data_over_centroids(centroid_shapefiles,image_stack, class_labels, 
+        image_meta, label_meta, save_directory, tile_size=224):
+    assert(image_stack.shape[1] == class_labels.shape[0])
+    assert(image_stack.shape[2] == class_labels.shape[1])
 
+    x = []
+    y = []
+    for shapefile in centroid_shapefiles:
+        shp = gpd.read_file(shapefile)
+        shp = shp[shp.geometry.notnull()]
+        crs = CRS(image_meta['crs'])
+        shp = shp.to_crs(crs)
+        features = get_features(shp)
+
+        xs = [f['coordinates'][0] for f in features]
+        ys= [f['coordinates'][1] for f in features]
+        x.extend(xs)
+        y.extend(ys)
+
+    rows, cols = rowcol(image_meta['transform'], x, y)
+    ts = tile_size // 2
+    for x, y in zip(rows, cols):
+        image_tile = image_stack[:, x-ts:x+ts, y-ts:y+ts]
+        class_label_tile = class_labels[x-ts:x+ts, y-ts:y+ts]
+        save_image_tile_and_mask(save_directory, image_tile, class_label_tile, image_meta,
+                label_meta)
 
 def isirr(f):
     if 'unirrigated' not in f and 'irrigated' in f:
@@ -683,48 +679,64 @@ if __name__ == '__main__':
     # 3. Just images from June. [ ]
     image_directory = '/home/thomas/ssd/rgb-surf/'
     shapefiles = glob('shapefile_data/test/*.shp') + glob('shapefile_data/train/*.shp')
-    training_root_directory = '/home/thomas/ssd/training-data-l8-centroid-full-year/'
+    training_root_directory = '/home/thomas/ssd/training-data/training-data-l8-no-centroid-full-year/'
+    train_dir = os.path.join(training_root_directory, 'train')
+    test_dir = os.path.join(training_root_directory, 'test')
     images = glob(os.path.join(image_directory, "*tif"))
     path_row_to_images = bin_images_into_path_row_year(images)
+
     if not os.path.isdir(training_root_directory):
         os.makedirs(training_root_directory)
 
     n_classes = 3
     done = set()
 
+    centroid = False
+    raster = True
     tile_size = 224
     year = 2013
     
     for f in shapefiles:
+
         if f in done:
             continue
-        test_shapefiles = all_matching_shapefiles(f, 'shapefile_data/test/', assign_shapefile_year)
-        train_shapefiles = all_matching_shapefiles(f, 'shapefile_data/train/',
+
+        test_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/test/', 
+                assign_shapefile_year)
+        train_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/train/', 
                 assign_shapefile_year)
         
-        for e in test_shapefiles + train_shapefiles:
-            done.add(e)
-
-        # test_centroids = list(map(isirr, test_shapefiles))
-        # train_centroids = list(map(isirr, train_shapefiles))
-        test_centroids = test_shapefiles
-        train_centroids = train_shapefiles
-
-        test_centroids = list(map(centroids_of_polygons, test_centroids))
-        train_centroids = list(map(centroids_of_polygons, train_centroids))
-
-        # Don't extract any test data since I already have it saved.
-        test_centroids = [None]*len(test_centroids)
-        test_shapefiles = [None]*len(test_shapefiles)
-
-        # train_centroids = [None]*len(train_centroids)
+        for shapefile in test_shapefiles + train_shapefiles:
+            done.add(shapefile)
 
         bs = os.path.splitext(os.path.basename(f))[0]
         _, path, row = bs[-7:].split("_")
         image_filenames = path_row_to_images['{}_{}_{}'.format(year, path, row)]
-        if not len(image_filenames):
+        image_stack, target_meta, target_fname, meta  = stack_images_from_list_of_filenames_sorted_by_date(image_filenames)
+
+        if image_stack is None:
             continue
-        else: 
-            extract_training_data_over_path_row_rgb(image_filenames, [test_shapefiles,
-                train_shapefiles], training_root_directory, year=year, tile_size=tile_size,
-                test_train_centroids=[test_centroids, train_centroids], oversample=True)
+        if image_stack.shape[0] < 39:
+            continue
+
+        train_class_labels = create_class_labels(train_shapefiles, assign_shapefile_class_code,
+                target_fname)
+        # Since target_fname is an n band raster, divide 
+        train_class_labels = np.sum(train_class_labels, axis=0) // train_class_labels.shape[0]
+
+        if raster:
+
+            extract_training_data_with_raster_scan(image_stack, train_class_labels, 
+                    target_meta, meta, save_directory=train_dir)
+
+            test_class_labels = create_class_labels(test_shapefiles, assign_shapefile_class_code,
+                    target_fname)
+            test_class_labels = np.sum(test_class_labels, axis=0) // test_class_labels.shape[0]
+
+            extract_training_data_with_raster_scan(image_stack, test_class_labels, 
+                    target_meta, meta, save_directory=test_dir)
+
+        if centroid:
+            train_centroids = list(map(centroids_of_polygons, train_shapefiles))
+            extract_training_data_over_centroids(train_centroids, image_stack, train_class_labels,
+                    target_meta, meta, save_directory=train_dir)

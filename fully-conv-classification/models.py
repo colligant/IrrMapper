@@ -480,7 +480,7 @@ def ResBlock(x, filters=64, snd_conv=False):
 
 def ConvBNRelu(x, filters=64):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
-            kernel_regularizer=l2(0.001))(x)
+            kernel_regularizer=l2(0.01))(x)
     x = BatchNormalization()(x)
     return Activation(relu)(x)
 
