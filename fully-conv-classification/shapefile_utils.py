@@ -9,7 +9,6 @@ from rasterio.mask import mask
 from pyproj import CRS
 from rasterio import open as rasopen
 from shapely.geometry import shape, mapping, Polygon
-from sklearn.neighbors import KDTree
 from collections import defaultdict
 
 
@@ -18,12 +17,12 @@ def get_features(gdf):
     features = [feature['geometry'] for feature in tmp['features']]
     return features
 
-def centroids_of_polygons(shapefile):
+def centroids_of_polygons(shapefile, tmp_dir='/home/thomascolligan/centroids/'):
 
     #  make a temp dir...?
     if shapefile is None:
         return None
-    out_filename = os.path.join('/home/thomas/buffered-shapefiles/', os.path.basename(shapefile))
+    out_filename = os.path.join(tmp_dir, os.path.basename(shapefile))
     with fopen(shapefile, 'r') as polys:
         meta = polys.meta
         meta['schema']['geometry'] = "Point"

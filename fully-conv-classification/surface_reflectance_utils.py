@@ -2,13 +2,15 @@ import os
 import tarfile 
 import datetime
 import numpy as np
+import pdb
 from argparse import ArgumentParser
 from multiprocessing import Pool
 from glob import glob
 from collections import defaultdict
 from rasterio import open as rasopen
 
-lsat8_targets = ('band4.tif', 'band3.tif', 'band2.tif')
+lsat8_targets = ('band1.tif', 'band2.tif','band3.tif','band4.tif','band5.tif','band6.tif','band7.tif')
+
 lsat7_targets = ('band3.tif', 'band2.tif', 'band1.tif')
 
 def stack_images_from_list_of_filenames_sorted_by_date(filenames):
@@ -344,13 +346,12 @@ def _parse_landsat_capture_date(landsat_scene):
     return datetime.datetime.strptime(julian_year_day, '%y%j').date()
 
 
-def save_rgb_image_from_tarball(root, tarball_name, outfile, targets):
+def save_image_from_tarball(root, tarball_name, outfile, targets):
 
     if os.path.isfile(outfile) and 'LE07' not in tarball_name: 
         print(outfile, 'already exists, not recreating')
         return
     print('creating', outfile)
-
 
     with tarfile.open(tarball_name, 'r:gz') as tar:   
         band_to_filename = defaultdict(set)
@@ -361,7 +362,8 @@ def save_rgb_image_from_tarball(root, tarball_name, outfile, targets):
                     band_to_filename[target] = name
         first = True
         for name in band_to_filename.values():
-            tar.extract(name, path=root)
+            if not os.path.isfile(os.path.join(root, name)):
+                tar.extract(name, path=root)
 
         for i, band in enumerate(targets):
             try:
@@ -373,24 +375,29 @@ def save_rgb_image_from_tarball(root, tarball_name, outfile, targets):
                 arr = src.read()
                 meta = src.meta.copy()
             if first:
-                rgb_array = np.zeros((3, arr.shape[1], arr.shape[2]), dtype=meta['dtype'])
+                rgb_array = np.zeros((len(targets), arr.shape[1], arr.shape[2]), dtype=meta['dtype'])
                 rgb_array[i] = arr
                 first = False
             else:
                 rgb_array[i] = arr
-            meta.update({'count':3})
+            meta.update({'count':len(targets)})
             with rasopen(outfile, 'w', **meta) as dst:
                 dst.write(rgb_array)
+        
+        for name in band_to_filename.values():
+            if os.path.isfile(os.path.join(root, name)):
+                os.remove(os.path.join(root, name))
+
 
 def get_tarball_satellite_date_and_path_row(tarball_name):
 
-    with tarfile.open(tarball_name, "r:gz") as tar:
-        for member in tar:
-            name = member.get_info()['name']
-            if name.endswith('band3.tif'):
-                satellite, date, path_row = parse_sr_satellite_capture_date_and_path_row(name)
-                return satellite, date, path_row
-    return None
+    tarball_name = os.path.basename(tarball_name)
+    satellite = tarball_name[:4]
+    path_row = tarball_name[4:10]
+    date = tarball_name[10:18]
+    date = datetime.datetime.strptime(date, '%Y%m%d')
+    return satellite, date, path_row
+
 
 def sort_tarfiles_into_path_row_directories(tarball_directory, dry_run=True):
 
@@ -420,6 +427,28 @@ def sort_tarfiles_into_path_row_directories(tarball_directory, dry_run=True):
             print(e)
 
 
+path_row_targets = set(['036029', '038029', '038027', '040029', '034029', '040027', 
+        '037028', '039027', '040028', '035027', '035029', '041027', '042027', 
+        '037029', '040026', '038028', '035028', '034026', '042026', '043026',
+        '039026', '043027', '038026', '034027', '036028', '036026', '039028', 
+        '039029', '034028', '041026', '036027', '041028', '035026', '037026', '037027'])
+
+
+def criteria(satellite, date, path_row):
+
+    if '7' in satellite:
+        return False
+    if date.year != 2013:
+        return False
+    if path_row not in path_row_targets:
+        return False
+    return True
+
+path_row_targets = set(['036026', '036027', '037026', '036028', '037028', '034027', '035027',
+    '041027', '042027', '041028', '040028', '039026', '038026', '039027', '038027',
+    '040027', '039028', '038028', '039039'])
+
+
 if __name__ == '__main__':
     # organization: 
     # all the data is stored in path/row directories
@@ -438,19 +467,71 @@ if __name__ == '__main__':
     args = ap.parse_args()
     tar_directory = args.tar_directory
     out_directory = args.out_directory
+    
+    ## REMEMBER TO DO THE TAR FILES.
+    # REMEMBER TO DO THE DIRECTORIES
+    
+    targets =  lsat8_targets
+
+    fs = os.listdir(tar_directory)
+    dirs = [f for f in fs if os.path.isdir(os.path.join(tar_directory, f))]
+    dirs = [f for f in dirs if f in path_row_targets]
+    tot_gz_files = []
+    pr_to_files = defaultdict(list)
+    print(len(path_row_targets))
+    files = glob(os.path.join(tar_directory, "*gz"))
+    root = '/media/synology/stacked_images_2015_mt/'
+    for f in files:
+        satellite, date, path_row = get_tarball_satellite_date_and_path_row(f)
+        path = path_row[1:3]
+        row = path_row[4:]
+        path_row = '0{}0{}'.format(path,row)
+        if (date.year == 2015 and satellite == 'LC08' and path_row in path_row_targets):
+            pr_to_files[path_row].append(f)
+            tot_gz_files.append(f)
+            datestring = str(date.year) + "_" + str(date.month) + "_" + str(date.day)
+            unique_filename = os.path.join(out_directory, "image_d{}_p{}.tif".format(datestring,
+                path_row))
+            try:
+                save_image_from_tarball(root, f, unique_filename, targets)
+            except Exception as e:
+                print(e)
+
+    # print(len(tot_gz_files))
+    # print(path_row_targets)
+
+    '''
+    for d in dirs:
+        for i, f in enumerate(glob(os.path.join(tar_directory, d, "*gz"))):
+            try:
+                satellite, date, path_row = get_tarball_satellite_date_and_path_row(f)
+                path = path_row[1:3]
+                row = path_row[4:]
+                path_row = '0{}0{}'.format(path,row)
+                if not criteria(satellite, date, path_row):
+                    continue
+                datestring = str(date.year) + "_" + str(date.month) + "_" + str(date.day)
+                unique_filename = os.path.join(out_directory, "image_d{}_p{}.tif".format(datestring,
+                    path_row))
+                root = os.path.join(tar_directory, d)
+                save_image_from_tarball(root, f, unique_filename, targets)
+            except Exception as e:
+                print(e)
+
     for i, f in enumerate(glob(os.path.join(tar_directory, "*gz"))):
         try:
-            print(i, f)
             satellite, date, path_row = get_tarball_satellite_date_and_path_row(f)
-            if int(satellite) == 7:
-                targets = lsat7_targets
-            else:
-                targets = lsat8_targets
-            datestring = str(date.year) + "_" + str(date.month) + "_" + str(date.day)
-            unique_filename = os.path.join(out_directory, "rgb_d{}_p{}.tif".format(datestring,
-                path_row))
-            save_rgb_image_from_tarball(tar_directory, f, unique_filename, targets)
-        except Exception as e:
-            print(e)
+            path = path_row[1:3]
+            row = path_row[4:]
+            path_row = '{}_{}'.format(path,row)
+            print(criteria(satellite, date, path_row))
             continue
+            datestring = str(date.year) + "_" + str(date.month) + "_" + str(date.day)
+            unique_filename = os.path.join(out_directory, "image_d{}_p{}.tif".format(datestring,
+                path_row))
+            save_image_from_tarball(tar_directory, f, unique_filename, targets)
+        except tarfile.ReadError:
+            with open('possibly_bad_archives.txt', 'a') as fil:
+                print(f, file=fil)
     #sort_tarfiles_into_path_row_directories(tar_directory, dry_run=False)
+    '''

@@ -23,14 +23,11 @@ sys.path.append(abspath)
 from numpy import datetime64, arange, zeros
 from collections import OrderedDict
 from datetime import datetime, timedelta
-from landsat.google_download import GoogleDownload
 from sat_image.image import Landsat5, Landsat7, Landsat8
 from sat_image.fmask import Fmask
 from sat_image.warped_vrt import warp_vrt
-from met.thredds import GridMet, TopoWX
 from shutil import rmtree
 from bounds import RasterBounds, GeoBounds
-from dem import AwsDem
 from functools import partial
 from pyproj import Proj, transform as pytransform, CRS as pyCRS
 from shapely.geometry import shape, Polygon, mapping
@@ -39,7 +36,6 @@ from rasterio import open as rasopen, float32
 from rasterio.crs import CRS
 from pixel_classification.crop_data_layer import CropDataLayer as Cdl
 from pixel_classification.runspec import (static_rasters, ancillary_rasters, mask_rasters, landsat_rasters)
-from sklearn.preprocessing import StandardScaler
 from geopandas.geodataframe import GeoDataFrame
 
 class ImageStack(object):
