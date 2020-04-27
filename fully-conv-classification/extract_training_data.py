@@ -21,6 +21,7 @@ from rasterio import open as rasopen, band, Affine
 from rasterio.errors import RasterioIOError, CRSError
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import rowcol
+from skimage import transform
 from sat_image.warped_vrt import warp_single_image
 from multiprocessing import Pool 
 from collections import defaultdict
@@ -122,13 +123,6 @@ def create_class_labels(shapefiles, assign_shapefile_class_code, mask_file):
     return class_labels
 
 
-def _days_from_january_raster(date, target_shape):
-    begin = datetime.date(date.year, 1, 1)
-    diff = date - begin
-    days = diff.days
-    out = np.zeros(target_shape)
-    out += days
-    return out
 
 
 def concatenate_fmasks_single_scene(class_labels, image_directory, target_date, class_mask_geo):
@@ -450,23 +444,42 @@ def shapefiles_in_same_path_row(to_match, shapefile_directory, assign_shapefile_
             out.append(f)
     return out
 
-
 def make_border_labels(mask, border_width):
     ''' Border width: Pixel width. '''
     dm = distance_map(mask)
     dm[dm > border_width] = 0
     return dm
 
+def days_from_january_raster(date, target_shape):
+    begin = datetime.date(date.year, 1, 1)
+    try:
+        diff = date - begin
+    except TypeError:
+        # datetime.datetime and datetime.date not comparable
+        diff = date.date() - begin
+    days = diff.days
+    out = np.zeros((target_shape[1], target_shape[2]))
+    out += days
+    return out
+
+def date_stack(dates, target_shape):
+    date_raster = np.zeros((len(dates), target_shape[1], target_shape[2]))
+    for i, d in enumerate(dates):
+        date_raster[i] = days_from_january_raster(d, target_shape)
+    return date_raster
+
 
 def stack_images_from_list_of_filenames_sorted_by_date(filenames):
     filenames = sorted(filenames, key=lambda x: parse_date(x))
-    #if len(filenames) > 16:
+    dates = [parse_date(x) for x in filenames]
+    # if len(filenames) > 16:
     #    filenames = filenames[:16]
     first = True
     image_stack = None
     i = 0
     n_bands = 7
     if not len(filenames):
+        print('empty list of filenames')
         return (None, None, None, None)
 
     for filename in filenames:
@@ -475,8 +488,8 @@ def stack_images_from_list_of_filenames_sorted_by_date(filenames):
             meta = deepcopy(src.meta)
         if first:
             first = False
-            image_stack = np.zeros((n_bands*len(filenames), arr.shape[1], arr.shape[2]), 
-                    dtype=np.int16)
+            image_stack = np.zeros((n_bands*len(filenames) + len(filenames),
+                arr.shape[1], arr.shape[2]), dtype=np.int16)
             target_meta = deepcopy(meta)
             target_fname = filename
             image_stack[0:n_bands] = arr
@@ -489,6 +502,7 @@ def stack_images_from_list_of_filenames_sorted_by_date(filenames):
                 arr = warp_single_image(filename, target_meta)
                 image_stack[i:i+n_bands] = arr
                 i += n_bands
+    image_stack[-len(filenames):] = date_stack(dates, image_stack.shape)
     return image_stack, target_meta, target_fname, meta
 
 def parse_date(rgb_filename):
@@ -543,7 +557,6 @@ def save_image_tile_and_mask(save_directory, image_tile, class_label_tile, image
     if class_name is None:
         # print(unique, counts)
         return
-
     class_label_tile[class_label_tile.mask] = label_meta['nodata']
 
     image_meta.update({'count':image_tile.shape[0], 'width':image_tile.shape[1],
@@ -629,7 +642,6 @@ def in_target_daterange(filename, year, bmonth=4, bday=15,
 def extract_training_data_with_raster_scan(image_stack, class_labels, 
         image_meta, label_meta, save_directory, tile_size=224):
 
-    
     assert(image_stack.shape[1] == class_labels.shape[0])
     assert(image_stack.shape[2] == class_labels.shape[1])
     tiles_y, tiles_x = _target_indices_from_class_labels(class_labels, tile_size)
@@ -679,9 +691,9 @@ if __name__ == '__main__':
     # 1. Just LC08 for 2013     [x]
     # 2. Both LC08 and LE07     [ ]
     # 3. Just images from June. [ ]
-    image_directory = '/media/synology/stacked_images_2015_mt/'
-    shapefiles = glob('shapefile_data/2015/*.shp')# + glob('shapefile_data/train/*.shp')
-    training_root_directory = '/media/synology/3728test/'
+    image_directory = '/home/thomas/ssd/stacked_images'
+    shapefiles = glob('shapefile_data/2013/test/*.shp') + glob('shapefile_data/2013/train/*.shp')
+    training_root_directory = '/home/thomas/ssd/training-data/training-data-l8-centroid-all-bands-full-year-16-img/'
     train_dir = os.path.join(training_root_directory, 'train')
     test_dir = os.path.join(training_root_directory, 'test')
     images = glob(os.path.join(image_directory, "*tif"))
@@ -695,40 +707,29 @@ if __name__ == '__main__':
 
     centroid = False
     raster = True
+
     tile_size = 224
-    year = 2015
+    year = 2013
     
     for f in shapefiles:
 
         if f in done:
             continue
 
-        #test_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2015/test/', 
-        #        assign_shapefile_year)
-        train_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2015/', 
+        test_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2013/test/', 
+                assign_shapefile_year)
+        train_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2013/train/', 
                 assign_shapefile_year)
         
-        for shapefile in train_shapefiles:
+        for shapefile in test_shapefiles + train_shapefiles:
             done.add(shapefile)
 
         bs = os.path.splitext(os.path.basename(f))[0]
         _, path, row = bs[-7:].split("_")
 
-        #min_data_tiles_to_cover_labels_plot(train_shapefiles, path, row, 2013, image_directory)
-        #continue
-
-        pry = '{}_{}_{}'.format(year, path, row)
-        image_filenames = path_row_to_images[pry]
-        if not len(image_filenames):
-            continue
-        train_dir = '/media/synology/{}test-data/'.format(pry)
-        if os.path.isdir(train_dir):
-            continue
-        os.makedirs(train_dir, exist_ok=True)
+        image_filenames = path_row_to_images['{}_{}_{}'.format(year, path, row)]
         image_stack, target_meta, target_fname, meta  = stack_images_from_list_of_filenames_sorted_by_date(image_filenames)
         if image_stack is None:
-            continue
-        if image_stack.shape[0] < 98:
             continue
         print(path, row, image_stack.shape)
         train_class_labels = create_class_labels(train_shapefiles, assign_shapefile_class_code,
@@ -741,15 +742,15 @@ if __name__ == '__main__':
             extract_training_data_with_raster_scan(image_stack, train_class_labels, 
                     target_meta, meta, save_directory=train_dir)
 
-            #test_class_labels = create_class_labels(test_shapefiles, assign_shapefile_class_code,
-            #        target_fname)
-            #test_class_labels = np.sum(test_class_labels, axis=0) // test_class_labels.shape[0]
+            test_class_labels = create_class_labels(test_shapefiles, assign_shapefile_class_code,
+                    target_fname)
+            test_class_labels = np.sum(test_class_labels, axis=0) // test_class_labels.shape[0]
 
-            #extract_training_data_with_raster_scan(image_stack, test_class_labels, 
-            #        target_meta, meta, save_directory=test_dir)
+            extract_training_data_with_raster_scan(image_stack, test_class_labels, 
+                    target_meta, meta, save_directory=test_dir)
 
         if centroid:
             train_centroids = list(map(centroids_of_polygons, train_shapefiles))
             extract_training_data_over_centroids(train_centroids, image_stack, 
                     train_class_labels, target_meta, meta, save_directory=train_dir)
-        #gc.collect()
+        gc.collect()
