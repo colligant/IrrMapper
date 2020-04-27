@@ -286,7 +286,8 @@ def confusion_matrix_from_generator(valid_generator, batch_size, model, time_dep
         if time_dependent:
             batch_x = _prepare_time_dependent_batch(batch_x)
         y_pred = model.predict(batch_x).squeeze()
-        y_pred = y_pred[:, -1, :, :]
+        if time_dependent:
+            y_pred = y_pred[:, -1, :, :]
         y_true, y_pred = mask_unlabeled_values_numpy(y_true, y_pred)
         cmat = confusion_matrix(y_true, y_pred, labels=labels)
         out_cmat += cmat

@@ -181,7 +181,6 @@ def filter_shapefile_overlapping(shapefile, out_directory=None):
             dist, ind = tree.query(centroid, k=10)
             tiles = features[ind[0]]
             prs = get_pr_subset(poly, tiles) # gets the matching path/rows
-
             for p in prs:
                 path_row_map[p].append(feat)
 
@@ -333,5 +332,9 @@ def buffer_shapefile(shp):
                 dst.write(feat)
 
 if __name__ == '__main__':
-    pass
 
+    base = '/home/thomas/irrigated-data-april16/EE_sample/'
+    shapefile = base + 'wetlands_15JUL_mt_wgs84.shp'
+    print(os.path.isfile(shapefile))
+    out_path = './shapefile_data/2015/'
+    filter_shapefile_overlapping(shapefile, out_path)

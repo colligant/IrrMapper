@@ -1,5 +1,5 @@
 import os
-#os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import argparse
 import tensorflow as tf
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.FATAL)
@@ -8,7 +8,7 @@ from glob import glob
 from numpy import sum as nsum
 
 from losses import *
-from models import small_unet_smarter
+from models import *
 from data_generators import StackDataGenerator
 from train_utils import confusion_matrix_from_generator, timeseries_confusion_matrix_from_generator
 
@@ -31,20 +31,22 @@ if __name__ ==  '__main__':
     #print(precision_dict)
     #print(recall_dict)
 
-    model = small_unet_smarter((None, None, 39), base=6)
-    model_path = './recurrent_0.878.h5'
-    model = tf.keras.models.load_model(model_path, custom_objects={'m_acc':m_acc})
+    model = unet((None, None, 98), n_classes=3, initial_exp=5)
+    base = './current_models/non-recurrent/full-unet-random_start_date-diff-lr-with-centroids/'
+    ### BEST MODEL: but precision is 89.2 and recall is 0.94
+    model_path = base + 'model_0.973-0.917.h5'
+    ### BEST MODEL k
+    model.load_weights(model_path)
     batch_size = 8
-    test_data_path = '/home/thomas/ssd/training-data-l8-no-centroid-full-year/test/'
+    min_images = 14
+    test_data_path = '/home/thomas/ssd/training-data/training-data-l8-centroid-all-bands-full-year-16-img/test/'
     n_classes = 3
-
     test_generator = StackDataGenerator(data_directory=test_data_path, batch_size=batch_size,
-            training=False, min_rgb_images=13)
+            training=False, min_images=min_images)
     print(len(test_generator))
     cmat, prec, recall = confusion_matrix_from_generator(test_generator, batch_size, 
-            model, n_classes=n_classes, time_dependent=True)
+            model, n_classes=n_classes, time_dependent=False)
     #cmat, prec, recall = timeseries_confusion_matrix_from_generator(test_generator, batch_size, 
     #        model, n_classes=args.n_classes)
-    print(cmat)
     print(nsum(cmat, axis=1))
     print('\n p:{}\n r:{}'.format(prec, recall))
