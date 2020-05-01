@@ -126,14 +126,24 @@ class StackDataGenerator(Sequence):
         This function makes them all have the same number of bands 
         according to min_rgb_images.
         '''
+        if min_images is None:
+            return image
+
         n_bands = 7
 
         n_rgb = image.shape[0] // n_bands
+
         if self.random_permute:
-            indices = np.asarray([np.arange(i, i+7) for i in range(0, image.shape[0], 7)])
-            good = np.random.choice(indices.shape[0], size=14, replace=False)
-            good = sorted(indices[good, :].ravel())
-            return image[good]
+            n_images = image.shape[0] // 8
+            # grab date of image w/ indices
+            indices = np.asarray([np.arange(i, i+n_bands) for i in range(0, n_images*n_bands, n_bands)])
+            # choose dates randomly, no replacement, randomly ordered through time
+            image_index = np.random.choice(indices.shape[0], size=min_images, replace=False)
+            # now add on the date raster on the end (the date raster is appended to the 
+            # end of the original image.
+            indices = indices[image_index, :].ravel()
+            image_indices = np.hstack((indices, n_images*n_bands + image_index))
+            return image[image_indices]
 
         if n_rgb > min_images:
             # just cut off end? or beginning?
@@ -182,31 +192,12 @@ class StackDataGenerator(Sequence):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from sys import stdout
-    train_path = '/home/thomas/testtest/train'
-#    train_path = '/home/thomas/ssd/training-data/training-data-l8-centroid-all-bands-full-year-16-img/train'
+    train_path = '/home/thomas/ssd/training-data-with-date/test/'
+
     dg = StackDataGenerator(train_path, 1, training=False,
-            min_images=14, only_irrigated=False)
-    j = 0
+            min_images=8, random_permute=True)
+
     for im, msk in dg:
-        im = im.squeeze()/np.max(im)
-        msk = msk.squeeze()
-        for i in range(0, 7*14, 7):
-            fig,ax  = plt.subplots(ncols=2)
-            ax[0].imshow(im[:, :, i:i+3])
-            ax[1].imshow(msk)
-            plt.title("{} {}".format(i, j))
-            plt.show()
-            break
-        j += 1
-    #train_path = '/home/thomas/ssd/training-data/training-data-l8-centroid-all-bands-full-year-16-img/train'
-    #dg = StackDataGenerator(train_path, 32, training=False,
-    #        min_images=14, only_irrigated=False)
-    #ll = len(dg)
-    #tot_pixels = 0
-    #i = 0
-    #for _, m in dg:
-    #    unmasked = np.sum(np.sum(m, axis=-1) != 0)
-    #    tot_pixels += unmasked
-    #    stdout.write("{}/{}\r".format(i, ll))
-    #    i += 1
-    #print(tot_pixels)
+        print(im.shape)
+
+
