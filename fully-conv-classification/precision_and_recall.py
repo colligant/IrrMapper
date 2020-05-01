@@ -147,7 +147,7 @@ if __name__ ==  '__main__':
 
     model = unet((None, None, 98), n_classes=3, initial_exp=5)
     ### BEST MODEL: but precision is 89.2 and recall is 0.94
-    model_path = './model_0.969-0.910.h5'
+    model_path = './models/model_0.969-0.910.h5'
     ### BEST MODEL k
     model.load_weights(model_path)
     batch_size = 16
@@ -155,8 +155,7 @@ if __name__ ==  '__main__':
 
     total_cmat = np.zeros((3, 3))
     for test_data_path in string:
-        if '41_28' not in test_data_path:
-            continue
+        print(test_data_path)
         n_classes = 3
         test_data_path = os.path.join("/media/synology/", test_data_path)
 
