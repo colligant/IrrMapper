@@ -29,23 +29,19 @@ class StackDataGenerator(Sequence):
 
 
     def __init__(self, data_directory, batch_size, 
-            image_suffix='*.tif', training=True, only_irrigated=False,
+            image_suffix='*.tif', training=True, start_idx=None,
             random_start_date=False, steps_per_epoch=None,
-            min_images=None, secondary_data_directory=None,
-            start_idx=None):
+            random_permute=False, min_images=None):
 
         self.classes = [d for d in os.listdir(os.path.join(data_directory, 'images')) if \
                 os.path.isdir(os.path.join(data_directory, 'images', d))]
-        if only_irrigated:
-            self.classes = [c for c in self.classes if 'irrigated' in c]
-            self.classes = [c for c in self.classes if 'unirrigated' not in c]
         if len(self.classes) == 0:
             raise ValueError('no directories in data directory {}'.format(data_directory))
 
         self.random_start_date = random_start_date
-        self.secondary_data_directory = secondary_data_directory
-        self.steps_per_epoch = steps_per_epoch
+        self.random_permute = random_permute
         self.start_idx = start_idx
+        self.steps_per_epoch = steps_per_epoch
         self.data_directory = data_directory
         self.training = training
         self.min_images = min_images
@@ -66,9 +62,6 @@ class StackDataGenerator(Sequence):
         for idx, d in enumerate(self.classes):
             self.index_to_class[idx] = d
             image_files = glob(os.path.join(data_directory, 'images', d, self.image_suffix))
-            if self.secondary_data_directory is not None:
-                image_files.extend(glob(os.path.join(self.secondary_data_directory, 'images', d,
-                    self.image_suffix)))
             if not len(image_files):
                 print("no training data for {} class".format(d))
                 self.classes.remove(d)
@@ -126,20 +119,43 @@ class StackDataGenerator(Sequence):
         This function makes them all have the same number of bands 
         according to min_rgb_images.
         '''
+        if min_images is None:
+            return image
+
         n_bands = 7
 
         n_rgb = image.shape[0] // n_bands
         if self.start_idx is not None:
-            #idx = np.arange(4*n_bands, 19*n_bands)
-            #good = idx < 5*n_bands
-            #good = good | (idx >= 6*n_bands)
-            #idx = idx[good]
-            return image[self.start_idx*n_bands:self.start_idx*n_bands + 14*n_bands]
+            n_images = image.shape[0] // 8
+            images = image[self.start_idx*n_bands:self.start_idx*n_bands + self.min_images*n_bands]
+            ofs = n_images*n_bands
+            dates = image[ofs + self.start_idx:ofs + self.start_idx + self.min_images]
+            return np.concatenate((images, dates), axis=0)
+
+        if self.random_permute:
+            n_images = image.shape[0] // 8
+            # grab date of image w/ indices
+            indices = np.asarray([np.arange(i, i+n_bands) for i in range(0, n_images*n_bands, n_bands)])
+            # choose dates randomly, no replacement, randomly ordered through time
+            try:
+                image_index = np.random.choice(indices.shape[0], size=min_images, replace=False)
+            except Exception as e:
+                with open('exceptions.txt', 'a') as f:
+                    f.write(str(s) + " {}".format(str(image.shape)) + ' {}'.format(str(image_index.shape)))
+                image_index = np.random.choice(indices.shape[0], size=min_images, replace=True)
+            # now add on the date raster on the end (the date raster is appended to the 
+            # end of the original image.
+            indices = indices[image_index, :].ravel()
+            image_indices = np.hstack((indices, n_images*n_bands + image_index))
+            return image[image_indices]
+
         if n_rgb > min_images:
             # just cut off end? or beginning?
             diff = n_rgb - min_images
+            end_block = image[image.shape[0]//8*n_bands:]
+            end_block = end_block[:min_images]
             if not self.training:
-                return image[:-diff*n_bands]
+                return np.vstack((image[:min_images*n_bands], end_block))
             start_idx = np.random.randint(diff)
             if np.random.randint(2) and random_start_date:
                 return image[start_idx*n_bands:start_idx*n_bands + min_images*n_bands]
@@ -182,20 +198,14 @@ class StackDataGenerator(Sequence):
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
     from sys import stdout
-    from shutil import copyfile
-    oss = os.path.splitext
-    osb = os.path.dirname
-    train_path = '/data/thomas-training-data/2015-test-all-ims/train/'
-    dg = StackDataGenerator(train_path, 32, training=True,
-            min_images=9, only_irrigated=False)
-    removed = 0
-    root = '/media/synology/train/'
-    os.makedirs(root, exist_ok=True)
-#    for i, m in zip(dg.images, dg.masks):
-#        idst = i.replace(train_path, root)
-#        mdst = m.replace(train_path, root)
-#        print(i, m)
-#        os.makedirs(osb(oss(idst)[0]), exist_ok=True)
-#        os.makedirs(osb(oss(mdst)[0]), exist_ok=True)
-#        copyfile(i, idst)
-#        copyfile(m, mdst)
+    train_path = '/media/synology/training-data-with-date-2015/train/'
+
+    dg = StackDataGenerator(train_path, 32, training=False,
+            min_images=14, random_permute=False,
+            start_idx=6)
+
+    print(len(dg))
+    exit()
+    minn = set()
+    for im, msk in dg:
+        print(im.shape)

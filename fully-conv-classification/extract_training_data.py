@@ -21,7 +21,6 @@ from rasterio import open as rasopen, band, Affine
 from rasterio.errors import RasterioIOError, CRSError
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import rowcol
-from skimage import transform
 from sat_image.warped_vrt import warp_single_image
 from multiprocessing import Pool 
 from collections import defaultdict
@@ -437,12 +436,16 @@ def _check_dimensions_and_min_pixels(sub_one_hot, class_code, tile_size):
 
 def shapefiles_in_same_path_row(to_match, shapefile_directory, assign_shapefile_year):
     out = []
-    pr = get_shapefile_path_row(to_match)
-    year = assign_shapefile_year(to_match)
-    for f in glob(os.path.join(shapefile_directory, "*.shp")):
-        if get_shapefile_path_row(f) == pr and assign_shapefile_year(f) == year:
-            out.append(f)
+    if os.path.isdir(shapefile_directory):
+        pr = get_shapefile_path_row(to_match)
+        year = assign_shapefile_year(to_match)
+        for f in glob(os.path.join(shapefile_directory, "*.shp")):
+            if get_shapefile_path_row(f) == pr and assign_shapefile_year(f) == year:
+                out.append(f)
+    else:
+        pass
     return out
+
 
 def make_border_labels(mask, border_width):
     ''' Border width: Pixel width. '''
@@ -687,13 +690,9 @@ def isirr(f):
                     
 if __name__ == '__main__':
     
-    # 3 different methods...
-    # 1. Just LC08 for 2013     [x]
-    # 2. Both LC08 and LE07     [ ]
-    # 3. Just images from June. [ ]
-    image_directory = '/home/thomas/ssd/stacked_images'
-    shapefiles = glob('shapefile_data/2013/test/*.shp') + glob('shapefile_data/2013/train/*.shp')
-    training_root_directory = '/home/thomas/ssd/training-data/training-data-l8-centroid-all-bands-full-year-16-img/'
+    image_directory = '/media/synology/stacked_images_2015_mt/'
+    shapefiles = glob('shapefile_data/2015/test/*.shp') + glob('shapefile_data/2015/train/*.shp')
+    training_root_directory = '/media/synology/training-data-with-date-2015/'
     train_dir = os.path.join(training_root_directory, 'train')
     test_dir = os.path.join(training_root_directory, 'test')
     images = glob(os.path.join(image_directory, "*tif"))
@@ -709,16 +708,16 @@ if __name__ == '__main__':
     raster = True
 
     tile_size = 224
-    year = 2013
+    year = 2015
     
     for f in shapefiles:
 
         if f in done:
             continue
 
-        test_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2013/test/', 
+        test_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2015/test/', 
                 assign_shapefile_year)
-        train_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2013/train/', 
+        train_shapefiles = shapefiles_in_same_path_row(f, 'shapefile_data/2015/train/', 
                 assign_shapefile_year)
         
         for shapefile in test_shapefiles + train_shapefiles:
@@ -731,7 +730,9 @@ if __name__ == '__main__':
         image_stack, target_meta, target_fname, meta  = stack_images_from_list_of_filenames_sorted_by_date(image_filenames)
         if image_stack is None:
             continue
-        print(path, row, image_stack.shape)
+        if image_stack.shape[0] < 112:
+            continue
+        print(path, row, image_stack.shape, len(image_filenames))
         train_class_labels = create_class_labels(train_shapefiles, assign_shapefile_class_code,
                 target_fname)
         # Since target_fname is an n band raster, divide 
@@ -742,12 +743,13 @@ if __name__ == '__main__':
             extract_training_data_with_raster_scan(image_stack, train_class_labels, 
                     target_meta, meta, save_directory=train_dir)
 
-            test_class_labels = create_class_labels(test_shapefiles, assign_shapefile_class_code,
-                    target_fname)
-            test_class_labels = np.sum(test_class_labels, axis=0) // test_class_labels.shape[0]
+            if len(test_shapefiles):
+                test_class_labels = create_class_labels(test_shapefiles, assign_shapefile_class_code,
+                        target_fname)
+                test_class_labels = np.sum(test_class_labels, axis=0) // test_class_labels.shape[0]
 
-            extract_training_data_with_raster_scan(image_stack, test_class_labels, 
-                    target_meta, meta, save_directory=test_dir)
+                extract_training_data_with_raster_scan(image_stack, test_class_labels, 
+                        target_meta, meta, save_directory=test_dir)
 
         if centroid:
             train_centroids = list(map(centroids_of_polygons, train_shapefiles))
