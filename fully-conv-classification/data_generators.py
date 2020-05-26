@@ -188,6 +188,15 @@ class StackDataGenerator(Sequence):
 
         return int(np.ceil(self.n_instances // self.batch_size))
 
+class TFRecordGenerator:
+
+    def __init__(self, data_directory):
+        pass
+    def __getitem__(self, idx):
+        pass
+    def __len__(self):
+        pass
+
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt

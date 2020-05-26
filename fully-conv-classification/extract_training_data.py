@@ -21,7 +21,6 @@ from rasterio import open as rasopen, band, Affine
 from rasterio.errors import RasterioIOError, CRSError
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.transform import rowcol
-from skimage import transform
 from sat_image.warped_vrt import warp_single_image
 from multiprocessing import Pool 
 from collections import defaultdict

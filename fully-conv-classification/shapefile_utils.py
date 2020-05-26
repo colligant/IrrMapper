@@ -9,6 +9,7 @@ from rasterio.mask import mask
 from pyproj import CRS
 from rasterio import open as rasopen
 from shapely.geometry import shape, mapping, Polygon
+from shapely.errors import TopologicalError
 from sklearn.neighbors import KDTree
 from collections import defaultdict
 
@@ -173,16 +174,19 @@ def filter_shapefile_overlapping(shapefile, out_directory=None):
     with fopen(shapefile, "r") as src:
         meta = deepcopy(src.meta)
         for feat in src:
-            poly = shape(feat['geometry'])
-            centroid = poly.centroid.coords[0]
-            cent_arr[0] = centroid[0]
-            cent_arr[1] = centroid[1]
-            centroid = cent_arr.reshape(1, -1)
-            dist, ind = tree.query(centroid, k=10)
-            tiles = features[ind[0]]
-            prs = get_pr_subset(poly, tiles) # gets the matching path/rows
-            for p in prs:
-                path_row_map[p].append(feat)
+            try:
+                poly = shape(feat['geometry'])
+                centroid = poly.centroid.coords[0]
+                cent_arr[0] = centroid[0]
+                cent_arr[1] = centroid[1]
+                centroid = cent_arr.reshape(1, -1)
+                dist, ind = tree.query(centroid, k=10)
+                tiles = features[ind[0]]
+                prs = get_pr_subset(poly, tiles) # gets the matching path/rows
+                for p in prs:
+                    path_row_map[p].append(feat)
+            except TopologicalError:
+                continue
 
     if out_directory is None:
         return path_row_map, meta
