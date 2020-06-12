@@ -2,7 +2,7 @@ import numpy as np
 import os
 import tensorflow as tf
 import tensorflow.keras.backend as K
-import matplotlib.pyplot as plt
+import argparse
 
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, LearningRateScheduler
@@ -105,6 +105,13 @@ def lr_schedule(epoch):
 
 if __name__ == '__main__':
 
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--job-dir')
+    args = ap.parse_args()
+    root = args.job_dir
+
+
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
     model = models.unet((None, None, 30), n_classes=config.N_CLASSES, initial_exp=4)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
@@ -117,7 +124,7 @@ if __name__ == '__main__':
 
     # train = utils.make_training_dataset('/home/thomas/ssd/train/')
     # test = utils.make_test_dataset('/home/thomas/ssd/test/')
-    model_out_path = config.MODEL_DIR
+    model_out_path = os.path.join(root, config.MODEL_DIR)
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
