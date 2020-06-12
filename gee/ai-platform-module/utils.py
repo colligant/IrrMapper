@@ -3,7 +3,8 @@ import time
 import os
 import tensorflow as tf
 
-import feature_spec
+from . import feature_spec
+from . import config
 
 features_dict = feature_spec.features_dict()
 bands = feature_spec.bands()
@@ -105,27 +106,44 @@ def to_tuple(inputs):
   labels = tf.cast(labels, tf.int32)
   return inputs, labels
 
-def make_dataset(root, batch_size=16, training=True):
-    paths = ['irrigated', 'uncultivated', 'unirrigated']
+
+def make_training_dataset(root, batch_size=16):
+    paths = ['class-0-data', 'class-1-data', 'class-2-data']
     pattern = "*gz"
     datasets = []
     for path in paths:
-        if os.path.isdir(os.path.join(root, path)):
-            training_root = os.path.join(root, path, pattern)
-            dataset = get_dataset(training_root)
-            if training:
-                datasets.append(dataset.repeat())
-            else:
-                datasets.append(dataset)
-    if not len(datasets):
-        training_root = os.path.join(root, pattern)
-        datasets = [get_dataset(training_root)]
-    if not training:
-        return datasets
+        training_root = os.path.join(root, path, pattern)
+        dataset = get_dataset(training_root)
+        datasets.append(dataset.repeat())
     choice_dataset = tf.data.Dataset.range(len(paths)).repeat()
     dataset = tf.data.experimental.choose_from_datasets(datasets,
-            choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=30)
+            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
     return dataset
+
+def make_test_dataset(root, batch_size=16):
+    pattern = "*gz"
+    training_root = os.path.join(root, pattern)
+    datasets = get_dataset(training_root).batch(config.BATCH_SIZE)
+    return datasets
+
+def iterate_over_files_in_dataset(path):
+    training_root = os.path.join(path, "*gz")
+    removed = []
+    r_cnt = 0
+    for f in tf.io.gfile.glob(training_root):
+        print(f)
+        dataset = tf.data.TFRecordDataset([f], compression_type='GZIP')
+        dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+        dataset = dataset.map(to_tuple, num_parallel_calls=5)
+        try:
+            for example in dataset:
+                xx, yy = example[0].shape, example[1].shape
+        except Exception as e:
+            print(e)
+            # os.remove(f)
+            r_cnt += 1
+            removed.append(f)
+
 
 if __name__ == '__main__':
 

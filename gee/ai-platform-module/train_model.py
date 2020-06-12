@@ -2,15 +2,16 @@ import numpy as np
 import os
 import tensorflow as tf
 import tensorflow.keras.backend as K
+import matplotlib.pyplot as plt
 
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, LearningRateScheduler
 from tensorflow.keras.metrics import Metric
 from tensorflow.keras.utils import Sequence
 
-from utils import mask_unlabeled_values, make_dataset
-from models import unet
-import feature_spec
+from . import  utils
+from . import models
+from . import feature_spec
 from . import config
 
 
@@ -51,7 +52,7 @@ class StreamingF1Score(Metric):
 
 
     def update_state(self, y_true, y_pred, sample_weight=None):
-        y_true, y_pred = mask_unlabeled_values(y_true, y_pred)
+        y_true, y_pred = utils.mask_unlabeled_values(y_true, y_pred)
         y_true = tf.reshape(y_true, [-1])
         y_pred = tf.reshape(y_pred, [-1])
         self.cmats.assign_add(tf.cast(tf.math.confusion_matrix(y_true,
@@ -104,19 +105,18 @@ def lr_schedule(epoch):
 
 if __name__ == '__main__':
 
-    sf1 = StreamingF1Score(num_classes=3, focus_on_class=0)
-    model = unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=4)
+    sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
+    model = models.unet((None, None, 30), n_classes=config.N_CLASSES, initial_exp=4)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
-    # train = make_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-    #     config.TRAIN_BASE))
-    # test = make_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-    #     config.TEST_BASE))
+    train = utils.make_training_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
+        config.TRAIN_BASE))
+    test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
+        config.TEST_BASE))
 
-    train = make_dataset('/home/thomas/ee-test/data/training_data/train/')
-    test = make_dataset('/home/thomas/ee-test/data/training_data/test/')
-
+    # train = utils.make_training_dataset('/home/thomas/ssd/train/')
+    # test = utils.make_test_dataset('/home/thomas/ssd/test/')
     model_out_path = config.MODEL_DIR
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
@@ -129,7 +129,7 @@ if __name__ == '__main__':
               steps_per_epoch=config.STEPS_PER_EPOCH,
               epochs=config.EPOCHS,
               validation_data=test,
-              validation_steps=config.VAL_STEPS,
+              validation_steps=config.TEST_SIZE // config.BATCH_SIZE,
               callbacks=[chpt, lr, tb])
 
     model.save(config.MODEL_DIR, save_format='tf')
