@@ -6,21 +6,21 @@
 
 PROJECT = 'GEE-IrrMapper'
 BUCKET = 'ee-irrigation-mapping'
-FOLDER = 'fcnn-try1-june-10'
+FOLDER = 'fcnn-local-train-june17'
 JOB_DIR = 'gs://' + BUCKET + '/' + FOLDER + '/trainer'
-MODEL_DIR = JOB_DIR + '/model_{val_f1:.3f}_{val_m_acc:.3f}.h5'
+MODEL_DIR = JOB_DIR + '/model'
 LOGS_DIR = JOB_DIR + '/logs'
 
-DATA_BUCKET = 'training-data'
-TRAIN_BASE = 'train'
-TEST_BASE = 'test'
+DATA_BUCKET = ''
+TRAIN_BASE = 'training-data-june16'
+TEST_BASE = 'test-data-june16'
 
 TRAIN_SIZE = 1000
 TEST_SIZE = 6096
 
-BATCH_SIZE = 24
+BATCH_SIZE = 32
 EPOCHS = 100
-STEPS_PER_EPOCH = 400
-VAL_STEPS = 100
-BUFFER_SIZE = 20
+STEPS_PER_EPOCH = 250
+VAL_STEPS = 20
+BUFFER_SIZE = 1
 N_CLASSES = 3

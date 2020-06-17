@@ -2,6 +2,8 @@ import numpy as np
 import time
 import os
 import tensorflow as tf
+from collections import defaultdict
+
 
 from . import feature_spec
 from . import config
@@ -68,12 +70,14 @@ def get_dataset(pattern):
   """Function to read, parse and format to tuple a set of input tfrecord files.
   Get all the files matching the pattern, parse and convert to tuple.
   Args:
-    pattern: A file pattern to match in a Cloud Storage bucket.
+    pattern: A file pattern to match in a Cloud Storage bucket,
+             or list of GCS files
   Returns:
     A tf.data.Dataset
   """
-  glob = tf.io.gfile.glob(pattern)
-  dataset = tf.data.TFRecordDataset(glob, compression_type='GZIP')
+  if not isinstance(pattern, list):
+      pattern = tf.io.gfile.glob(pattern)
+  dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP')
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
   dataset = dataset.map(to_tuple, num_parallel_calls=5)
 
@@ -107,17 +111,30 @@ def to_tuple(inputs):
   return inputs, labels
 
 
+def filter_list_into_classes(lst):
+    out = defaultdict(list)
+    for f in lst:
+        if 'irrigated' in f and 'unirrigated' not in f:
+            out['irrigated'].append(f)
+        elif 'unirrigated' in f or 'fallow' in f:
+            out['unirrigated'].append(f)
+        elif 'uncultivated' in f or 'wetlands' in f:
+            out['uncultivated'].append(f)
+
+    return out
+
 def make_training_dataset(root, batch_size=16):
-    paths = ['class-0-data', 'class-1-data', 'class-2-data']
     pattern = "*gz"
     datasets = []
-    for path in paths:
-        training_root = os.path.join(root, path, pattern)
-        dataset = get_dataset(training_root)
+    files = tf.io.gfile.glob(os.path.join(root, pattern))
+    files = filter_list_into_classes(files) # So I don't have to move files
+    # into separate directories; just use their names.
+    for class_name, file_list in files.items():
+        dataset = get_dataset(file_list)
         datasets.append(dataset.repeat())
-    choice_dataset = tf.data.Dataset.range(len(paths)).repeat()
+    choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
     dataset = tf.data.experimental.choose_from_datasets(datasets,
-            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
+            choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
     return dataset
 
 def make_test_dataset(root, batch_size=16):

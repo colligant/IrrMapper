@@ -4,7 +4,11 @@ ee.Initialize()
 import tensorflow as tf
 import time
 import os
+import numpy as np
+from random import shuffle
+
 from ee_utils import temporalCollection, assign_class_code
+
 
 LC8_BANDS = ['B2',   'B3',    'B4',  'B5',  'B6',    'B7']
 LC7_BANDS = ['B1',   'B2',    'B3',  'B4',  'B5',    'B7']
@@ -32,10 +36,10 @@ SHP_TO_YEAR_AND_COUNT = {
             2013:3584, 2015:3584},
         'unirrigated_train':{2003:12238, 2008:12238, 2009:12238, 2010:12238, 2011:12238, 2012:12238,
             2013:12238, 2015:12238},
-        'wetlands_test':{2003:1252, 2008:3584, 2009:3584, 2010:3584, 2011:3584, 2012:3584,
-            2013:1252, 2015:3584},
-        'wetlands_train':{2003:6245, 2008:3584, 2009:3584, 2010:3584, 2011:3584, 2012:3584,
-            2013:6245, 2015:3584}
+        'wetlands_test':{2003:1252, 2008:1252, 2009:1252, 2010:1252, 2011:1252, 2012:1252,
+            2013:1252, 2015:1252},
+        'wetlands_train':{2003:6245, 2008:6245, 2009:6245, 2010:6245, 2011:6245, 2012:6245,
+            2013:6245, 2015:6245}
         }
 
 def preprocess_data(year):
@@ -89,7 +93,6 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
 
     shapefile_to_feature_collection = temporally_filter_features(mask_shapefiles, year)
     class_labels = create_class_labels(shapefile_to_feature_collection)
-
     data_stack = ee.Image.cat([image_stack, class_labels]).float()
     data_stack = data_stack.neighborhoodToArray(KERNEL)
 
@@ -104,31 +107,28 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
             # request something from the server
             n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][year]
             out_class_label = os.path.basename(shapefile)
-            out_filename = out_folder + "_" + out_class_label + "_" + str(year)
+            out_filename = out_class_label + "_" + str(year)
             geometry_sample = ee.ImageCollection([])
-            if 'irrigated' in out_class_label and 'unirrigated' not in out_class_label:
-                rate = 1
-            elif 'fallow' in out_class_label:
-                rate = 1
-            else:
-                rate = 10
-            print(year, shapefile, rate)
-            for i in range(n_features):
-                if i % rate != 0:
-                    continue
+            rate = 20
+            print(year, shapefile, n_features, n_features // rate)
+            feature_count = 0
+            indices = np.random.choice(n_features, size=n_features // rate)
+            indices = [int(i) for i in indices] 
+            for i, idx in enumerate(indices):
                 sample = data_stack.sample(
-                        region=ee.Feature(polygons.get(i)).geometry(),
+                        region=ee.Feature(polygons.get(idx)).geometry(),
                         scale=30,
                         numPixels=1,
                         tileScale=8
                         )
                 geometry_sample = geometry_sample.merge(sample)
-                if (i+1) % n_shards == 0:
+                feature_count += 1
+                if (feature_count+1) % n_shards == 0:
                     task = ee.batch.Export.table.toCloudStorage(
                             collection=geometry_sample,
                             description=out_filename + str(time.time()),
                             bucket=GS_BUCKET,
-                            fileNamePrefix=out_filename + str(time.time()),
+                            fileNamePrefix=out_folder + out_filename + str(time.time()),
                             fileFormat='TFRecord',
                             selectors=features
                             )
@@ -146,7 +146,10 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
         polygons = ee.FeatureCollection(points_to_extract)
         polygons = polygons.toList(polygons.size())
         n_features = polygons.size().getInfo() # see if this works
+        print(n_features)
         geometry_sample = ee.ImageCollection([])
+        out_filename = 'test_pts' + "_" + str(year)
+        print(out_filename)
         for i in range(n_features):
             sample = data_stack.sample(
                     region=ee.Feature(polygons.get(i)).geometry(),
@@ -159,7 +162,8 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
                 task = ee.batch.Export.table.toCloudStorage(
                         collection=geometry_sample,
                         bucket=GS_BUCKET,
-                        fileNamePrefix=out_filename + str(time.time()),
+                        description=out_filename + str(time.time()),
+                        fileNamePrefix=out_folder + out_filename + str(time.time()),
                         fileFormat='TFRecord',
                         selectors=features
                         )
@@ -177,6 +181,15 @@ if __name__ == '__main__':
     train = [root + t for t in train]
     test_pts = 'users/tcolligan0/irrigated-dataset/test_points_subset'
     train_pts = 'users/tcolligan0/irrigated-dataset/train_points'
-    years = [2008, 2009, 2010, 2011, 2012, 2013, 2015]
-    for year in years:
-        extract_data_over_shapefiles(train, year, 'test', test_pts)
+    wetlands = 'users/tcolligan0/irrigated-dataset/wetlands_train'
+    years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
+    extract_test = False
+    extract_train = True
+    if extract_test:
+        for year in years:
+            extract_data_over_shapefiles(test, year,
+                    out_folder='test-data-june16/', points_to_extract=test_pts)
+    if extract_train:
+        for year in years:
+            extract_data_over_shapefiles(train, year, 
+                    out_folder='training-data-june17/')

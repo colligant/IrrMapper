@@ -1,4 +1,5 @@
 import ee
+import os
 
 def temporalCollection(collection, start, count, interval, units):
  
@@ -47,11 +48,20 @@ def extract_data_over_polygons(polygon_list, data_stack, out_folder, file_basena
 
 
 def assign_class_code(shapefile_path):
+  shapefile_path = os.path.basename(shapefile_path)
   if 'irrigated' in shapefile_path and 'unirrigated' not in shapefile_path:
       return 0
-  if 'unirrigated' in shapefile_path:
+  if 'unirrigated' in shapefile_path or 'fallow' in shapefile_path:
       return 1
   if 'wetlands' in shapefile_path or 'uncultivated' in shapefile_path:
       return 2
   else:
       raise NameError('shapefile path {} isn\'t named in assign_class_code'.format(shapefile_path))
+
+
+
+if __name__ == '__main__':
+    pass
+
+
+

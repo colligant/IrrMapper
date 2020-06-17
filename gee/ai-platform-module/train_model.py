@@ -43,12 +43,13 @@ class StreamingF1Score(Metric):
     '''
 
     def __init__(self, name='f1', num_classes=2, 
-            focus_on_class=None, **kwargs):
+            focus_on_class=None, save_cmat=False, **kwargs):
         super(StreamingF1Score, self).__init__(name=name, **kwargs)
         self.cmats = self.add_weight(name='cmats', shape=(num_classes, 
             num_classes), dtype=tf.float32, initializer='zeros')
         self.num_classes = num_classes
         self.focus_on_class = focus_on_class
+        self.save_cmat = save_cmat
 
 
     def update_state(self, y_true, y_pred, sample_weight=None):
@@ -60,7 +61,8 @@ class StreamingF1Score(Metric):
         
 
     def reset_states(self):
-        tf.print(self.cmats, output_stream='file://cmat.out')
+        if self.save_cmat:
+            tf.print(self.cmats, output_stream='file://cmat.out')
         K.batch_set_value([(v, np.zeros((self.num_classes, self.num_classes),
             dtype=np.float32)) for v in self.variables])
 
@@ -118,13 +120,14 @@ if __name__ == '__main__':
             metrics=[m_acc, sf1])
 
     train = utils.make_training_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-        config.TRAIN_BASE))
+        config.TRAIN_BASE), batch_size=config.BATCH_SIZE)
     test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-        config.TEST_BASE))
+        config.TEST_BASE), batch_size=config.BATCH_SIZE)
 
     # train = utils.make_training_dataset('/home/thomas/ssd/train/')
     # test = utils.make_test_dataset('/home/thomas/ssd/test/')
-    model_out_path = os.path.join(root, config.MODEL_DIR)
+
+    model_out_path = config.MODEL_DIR
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
@@ -136,7 +139,7 @@ if __name__ == '__main__':
               steps_per_epoch=config.STEPS_PER_EPOCH,
               epochs=config.EPOCHS,
               validation_data=test,
-              validation_steps=config.TEST_SIZE // config.BATCH_SIZE,
+              validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
               callbacks=[chpt, lr, tb])
 
     model.save(config.MODEL_DIR, save_format='tf')
