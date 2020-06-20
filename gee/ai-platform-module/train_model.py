@@ -90,17 +90,17 @@ class StreamingF1Score(Metric):
 def lr_schedule(epoch):
     lr = 1e-3
     rlr = 1e-3
-    if epoch > 25:
-        rlr = lr / 2
     if epoch > 50:
-        rlr = lr / 4
-    if epoch > 75:
-        rlr = lr / 6
-    if epoch > 100:
-        rlr = lr / 8
-    if epoch > 125:
-        rlr = lr / 16
+        rlr = lr / 2
     if epoch > 150:
+        rlr = lr / 4
+    if epoch > 200:
+        rlr = lr / 6
+    if epoch > 240:
+        rlr = lr / 8
+    if epoch > 300:
+        rlr = lr / 16
+    if epoch > 400:
         rlr = lr / 32
     tf.summary.scalar('learning rate', data=rlr, step=epoch)
     return rlr
@@ -119,15 +119,18 @@ if __name__ == '__main__':
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
-    train = utils.make_training_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-        config.TRAIN_BASE), batch_size=config.BATCH_SIZE)
-    test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, config.DATA_BUCKET, 
-        config.TEST_BASE), batch_size=config.BATCH_SIZE)
+    if config.REMOTE_OR_LOCAL == 'remote':
+        train = utils.make_training_dataset(os.path.join('gs://', config.BUCKET,
+            config.DATA_BUCKET, config.TRAIN_BASE), batch_size=config.BATCH_SIZE)
+        test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
+            config.DATA_BUCKET, config.TEST_BASE), batch_size=2*config.BATCH_SIZE)
+    else:
+        train = utils.make_training_dataset('/home/thomas/ssd/train-reextracted/',
+                batch_size=config.BATCH_SIZE)
+        test = utils.make_test_dataset('/home/thomas/ssd/test-reextracted/',
+                batch_size=2*config.BATCH_SIZE)
 
-    # train = utils.make_training_dataset('/home/thomas/ssd/train/')
-    # test = utils.make_test_dataset('/home/thomas/ssd/test/')
-
-    model_out_path = config.MODEL_DIR
+    model_out_path = config.MODEL_DIR + "/{val_f1:.4f}"
     lr = LearningRateScheduler(lr_schedule, verbose=True)
     chpt = ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
@@ -142,4 +145,4 @@ if __name__ == '__main__':
               validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
               callbacks=[chpt, lr, tb])
 
-    model.save(config.MODEL_DIR, save_format='tf')
+    model.save(config.JOB_DIR + "fully", save_format='tf')

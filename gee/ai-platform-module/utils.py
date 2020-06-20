@@ -77,7 +77,8 @@ def get_dataset(pattern):
   """
   if not isinstance(pattern, list):
       pattern = tf.io.gfile.glob(pattern)
-  dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP')
+  dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
+          num_parallel_reads=8)
   dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
   dataset = dataset.map(to_tuple, num_parallel_calls=5)
 
