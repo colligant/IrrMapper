@@ -2,7 +2,7 @@ import tensorflow as tf
 '''
 Feature spec for reading/writing tf records
 '''
-features_dict_ = {'0_blue_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf.float32, default_value=None),
+features_dict_ ={'0_blue_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf.float32, default_value=None),
                  '0_green_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf.float32, default_value=None),
                  '0_nir_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf.float32, default_value=None),
                  '0_red_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf.float32, default_value=None),
@@ -48,4 +48,8 @@ def bands():
 def features():
     features = list(features_dict_.keys())
     return features
+
+if __name__ == '__main__':
+
+    print(len(features_dict_))
 

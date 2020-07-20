@@ -55,6 +55,9 @@ def assign_class_code(shapefile_path):
       return 1
   if 'wetlands' in shapefile_path or 'uncultivated' in shapefile_path:
       return 2
+  if 'points':
+      # annoying workaround for earthengine
+      return 10
   else:
       raise NameError('shapefile path {} isn\'t named in assign_class_code'.format(shapefile_path))
 

@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
 
 from collections import defaultdict
@@ -59,7 +60,7 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes=3):
                 uniq[u] += c
             cmat = confusion_matrix(y_true, y_pred, labels=labels)
             out_cmat += cmat
-            print(instance_count)
+            #print(instance_count)
     precision_dict = {}
     recall_dict = {}
     for i in range(n_classes):
@@ -135,16 +136,31 @@ def make_dataset(root, batch_size=16, training=True):
             choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=30)
     return dataset
 
+def filter_list_into_classes(lst):
+    out = defaultdict(list)
+    for f in lst:
+        if 'irrigated' in f and 'unirrigated' not in f:
+            out['irrigated'].append(f)
+        elif 'unirrigated' in f or 'fallow' in f:
+            out['unirrigated'].append(f)
+        elif 'uncultivated' in f or 'wetlands' in f:
+            out['uncultivated'].append(f)
+
+    return out
+
 def make_training_dataset(root, batch_size=16):
-    paths = ['class-0-data', 'class-1-data', 'class-2-data']
     pattern = "*gz"
     datasets = []
-    for path in paths:
-        if os.path.isdir(os.path.join(root, path)):
-            training_root = os.path.join(root, path, pattern)
-            dataset = get_dataset(training_root)
-            datasets.append(dataset)
-    return datasets
+    files = tf.io.gfile.glob(os.path.join(root, pattern))
+    files = filter_list_into_classes(files) # So I don't have to move files
+    # into separate directories; just use their names.
+    for class_name, file_list in files.items():
+        dataset = get_dataset(file_list)
+        datasets.append(dataset.repeat())
+    choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
+    dataset = tf.data.experimental.choose_from_datasets(datasets,
+            choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
+    return dataset
 
 def make_test_dataset(root, batch_size=16):
     pattern = "*gz"
@@ -165,9 +181,17 @@ def m_acc(y_true, y_pred):
 
 if __name__ == '__main__':
 
-    model_path = '/tmp/grep/'
+[[  1760714    121508    123482]
+ [   188977  68466474   2776309]
+ [   141264   7450104 112632064]] {0: 0.84206211994041, 1: 0.9004234272809024, 2: 0.9749005068775187}
+ {0: 0.8778533622109743, 1: 0.958487849102416, 2: 0.9368561696026112} 8969 defaultdict(<class 'int'>,
+ {0: 2005704, 1: 71431760, 2: 120223432})
+    import matplotlib.pyplot as plt
+    # model_path = './gs-models/june17_1/'
+    model_path = 'gs://ee-irrigation-mapping/fcnn-local-train-june17_1/trainer/model/'
     loaded = tf.saved_model.load(model_path)
     infer = loaded.signatures["serving_default"]
     # datasets = make_training_dataset('/home/thomas/ssd/test-reextracted/')
-    datasets = make_test_dataset('/home/thomas/ssd/training-data-june16/')
-    c, p, r, i, u = confusion_matrix_from_generator(datasets, batch_size=32, model=infer)
+    datasets = make_test_dataset('/home/thomas/ssd/test-masked-with-points')
+    c, p, r, i, u = confusion_matrix_from_generator(datasets, 16, infer)
+    print(c, p, r, i, u)
