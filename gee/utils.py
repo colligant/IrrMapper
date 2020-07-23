@@ -108,8 +108,8 @@ def to_tuple(inputs):
   stacked = tf.stack(inputsList, axis=0)
   # Convert from CHW to HWC
   stacked = tf.transpose(stacked, [1, 2, 0])
-  inputs = stacked[:,:,:len(bands)] 
-  labels = one_hot(stacked[:,:,len(bands):], n_classes=3)
+  inputs = stacked[:,:,:len(bands)] * 0.0001
+  labels = one_hot(stacked[:,:,len(bands):], n_classes=5)
   labels = tf.cast(labels, tf.int32)
   return inputs, labels
 
@@ -166,7 +166,7 @@ def make_test_dataset(root, batch_size=16):
     pattern = "*gz"
     datasets = []
     training_root = os.path.join(root, pattern)
-    datasets = [get_dataset(training_root)]
+    datasets = get_dataset(training_root)
     return datasets
 
 def m_acc(y_true, y_pred):
@@ -181,17 +181,20 @@ def m_acc(y_true, y_pred):
 
 if __name__ == '__main__':
 
-[[  1760714    121508    123482]
- [   188977  68466474   2776309]
- [   141264   7450104 112632064]] {0: 0.84206211994041, 1: 0.9004234272809024, 2: 0.9749005068775187}
- {0: 0.8778533622109743, 1: 0.958487849102416, 2: 0.9368561696026112} 8969 defaultdict(<class 'int'>,
- {0: 2005704, 1: 71431760, 2: 120223432})
     import matplotlib.pyplot as plt
-    # model_path = './gs-models/june17_1/'
-    model_path = 'gs://ee-irrigation-mapping/fcnn-local-train-june17_1/trainer/model/'
-    loaded = tf.saved_model.load(model_path)
-    infer = loaded.signatures["serving_default"]
-    # datasets = make_training_dataset('/home/thomas/ssd/test-reextracted/')
-    datasets = make_test_dataset('/home/thomas/ssd/test-masked-with-points')
-    c, p, r, i, u = confusion_matrix_from_generator(datasets, 16, infer)
-    print(c, p, r, i, u)
+    dataset = make_test_dataset('/tmp/').batch(1)
+    for features, labels in dataset:
+
+        lb = np.sum(labels, axis=-1) == 0
+        lab = np.argmax(labels, axis=-1).astype(np.float32)
+        lab[lb] = np.nan
+        f, ax = plt.subplots(ncols=2)
+        ax[0].imshow(lab.squeeze())
+        features = features.numpy().squeeze()
+        vis = np.dstack((features[:, :, 3], features[:, :, 1], features[:, :, 0]))
+        vis = vis /np.max(vis)
+        ax[1].imshow(vis)
+        # plt.colorbar()
+        plt.show()
+
+
