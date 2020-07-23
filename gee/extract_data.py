@@ -8,6 +8,7 @@ import numpy as np
 from random import shuffle
 
 from ee_utils import temporalCollection, assign_class_code
+from shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 
 LC8_BANDS = ['B2',   'B3',    'B4',  'B5',  'B6',    'B7']
@@ -15,45 +16,13 @@ LC7_BANDS = ['B1',   'B2',    'B3',  'B4',  'B5',    'B7']
 LC5_BANDS = ['B1',   'B2',    'B3',  'B4',  'B5',    'B7']
 STD_NAMES = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']
 
-KERNEL_SIZE = 256
+KERNEL_SIZE = 512
 KERNEL_SHAPE = [KERNEL_SIZE, KERNEL_SIZE]
 list_ = ee.List.repeat(1, KERNEL_SIZE)
 lists = ee.List.repeat(list_, KERNEL_SIZE)
 KERNEL = ee.Kernel.fixed(KERNEL_SIZE, KERNEL_SIZE, lists)
 GS_BUCKET = 'ee-irrigation-mapping'
 
-SHP_TO_YEAR_AND_COUNT = {
-        'irrigated_validation': {2003:245, 2008:2069, 2009:2284, 2010:2915, 2011:2676,
-            2012:2608, 2013:3020, 2015:833},
-        'fallow_validation': {2009:24, 2010:69, 2011:69, 2012:100, 2013:81},
-        'uncultivated_validation':{2003:2372, 2008:2372, 2009:2372, 2010:2372, 2011:2372, 2012:2372, 2013:2372, 2015:2372},
-        'unirrigated_validation':{2003:3584, 2008:3584, 2009:3584, 2010:3584, 2011:3584, 2012:3584,
-            2013:3584, 2015:3584},
-        'wetlands_validation':{2003:1252, 2008:1252, 2009:1252, 2010:1252, 2011:1252, 2012:1252,
-            2013:1252, 2015:1252},
-        'irrigated_test': {2003:245, 2008:2069, 2009:2284, 2010:2915, 2011:2676,
-            2012:2608, 2013:3020, 2015:833},
-        'irrigated_train': {2003:741, 2008:6574, 2009:6849, 2010:8342, 2011:7297,
-            2012:7169, 2013:8640, 2015:2580},
-        'fallow_test': {2009:24, 2010:69, 2011:69, 2012:100, 2013:81},
-        'fallow_train': {2009:134,2010:301, 2011:301, 2012:425, 2013:430},
-        'uncultivated_test':{2003:2372, 2008:2372, 2009:2372, 2010:2372, 2011:2372, 2012:2372, 2013:2372, 2015:2372},
-        'uncultivated_train':{2003:9537, 2008:9537, 2009:9537, 2010:9537, 2011:9537, 2012:9537,
-            2013:9537, 2015:9537},
-        'unirrigated_test':{2003:3584, 2008:3584, 2009:3584, 2010:3584, 2011:3584, 2012:3584,
-            2013:3584, 2015:3584},
-        'unirrigated_train':{2003:12238, 2008:12238, 2009:12238, 2010:12238, 2011:12238, 2012:12238,
-            2013:12238, 2015:12238},
-        'wetlands_test':{2003:1252, 2008:1252, 2009:1252, 2010:1252, 2011:1252, 2012:1252,
-            2013:1252, 2015:1252},
-        'wetlands_train':{2003:6245, 2008:6245, 2009:6245, 2010:6245, 2011:6245, 2012:6245,
-            2013:6245, 2015:6245}
-        }
-
-SHP_TO_COUNT = {'wetlands_train':6245,
-                'uncultivated_train':9537,
-                'unirrigated_train':12238,
-               }
 
 def preprocess_data(year):
 
@@ -91,7 +60,8 @@ def temporally_filter_features(shapefiles, year):
 def create_class_labels(shapefile_to_feature_collection):
     class_labels = ee.Image(0).byte()
     for shapefile, feature_collection in shapefile_to_feature_collection.items():
-        class_labels = class_labels.paint(feature_collection, assign_class_code(shapefile)+1)
+        class_labels = class_labels.paint(feature_collection, 
+                assign_class_code(shapefile)+1)
     return class_labels.updateMask(class_labels)
 
 
@@ -109,6 +79,7 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
     shapefile_to_feature_collection = temporally_filter_features(mask_shapefiles, year)
     if points_to_extract is not None:
         shapefile_to_feature_collection['points'] = points_to_extract
+
     class_labels = create_class_labels(shapefile_to_feature_collection)
     data_stack = ee.Image.cat([image_stack, class_labels]).float()
     data_stack = data_stack.neighborhoodToArray(KERNEL)
@@ -118,7 +89,6 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
         # was passed in 
         for shapefile, feature_collection in shapefile_to_feature_collection.items():
 
-
             polygons = feature_collection.toList(feature_collection.size())
             # Frustratingly using getInfo() for sizes causes
             # a EE out of user memory error, because it has to actually
@@ -127,11 +97,15 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
                 n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][year]
             except KeyError:
                 n_features = SHP_TO_COUNT[os.path.basename(shapefile)]
+            print(year, n_features, shapefile)
+            continue
             out_class_label = os.path.basename(shapefile)
             out_filename = out_class_label + "_" + str(year)
             geometry_sample = ee.ImageCollection([])
-            indices = np.arange(n_features)
+            indices = np.arange(400)
             print(out_class_label, year)
+            n = 30
+            indices = np.random.choice(indices, size=n)
             indices = [int(i) for i in indices] 
             feature_count = 0
             for i, idx in enumerate(indices):
@@ -155,7 +129,7 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
                     try:
                         task.start()
                     except ee.ee_exception.EEException:
-                        print('waiting to export, sleeping for 5 minutes. Holding at\
+                        print('waiting to export, sleeping for 50 minutes. Holding at\
                                 {} {}, index {}'.format(year, shapefile, i))
                         time.sleep(3000)
                         task.start()
@@ -233,21 +207,19 @@ if __name__ == '__main__':
     train_pts = 'users/tcolligan0/points_to_extract/train_regions_points'
     validation_pts = 'users/tcolligan0/points_to_extract/validation_regions_points'
 
-    years = range(2003, 2015)
-    # years = range(2013, 2016)
-    # years = [2015]
+    years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
     extract_test = False
     extract_train = True
     extract_validation = False
     if extract_test:
         for year in years:
             extract_data_over_shapefiles(test, year,
-                    out_folder='test-data-june30-578/', points_to_extract=test_pts)
+                    out_folder='test-data-july23/', points_to_extract=test_pts)
     if extract_train:
         for year in years:
             extract_data_over_shapefiles(train, year, 
-                    out_folder='train-data-july9_1-578/') #, points_to_extract=train_pts)
+                    out_folder='train-data-july23') #, points_to_extract=train_pts)
     if extract_validation:
         for year in years:
             extract_data_over_shapefiles(validation, year, 
-                    out_folder='validation-data-june30-578/', points_to_extract=validation_pts)
+                    out_folder='validation-data-july23', points_to_extract=validation_pts)
