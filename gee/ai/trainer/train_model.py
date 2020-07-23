@@ -53,7 +53,7 @@ class StreamingF1Score(Metric):
 
     def reset_states(self):
         if self.save_cmat:
-            tf.print(self.cmats, output_stream='file://cmat.out')
+            tf.print(self.cmats, output_stream="file://" + config.JOB_DIR)
         K.batch_set_value([(v, np.zeros((self.num_classes, self.num_classes),
             dtype=np.float32)) for v in self.variables])
 
@@ -79,7 +79,7 @@ class StreamingF1Score(Metric):
 
 
 def lr_schedule(epoch):
-    lr = 1e-2
+    lr = 1e-3
     rlr = 1e-3
     if epoch > 70:
         rlr = lr / 2
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     root = args.job_dir
 
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
-    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=4)
+    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=6)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
@@ -114,6 +114,11 @@ if __name__ == '__main__':
         test = utils.make_test_dataset('/home/thomas/ssd/test-reextracted/',
                 batch_size=2*config.BATCH_SIZE)
 
+    n_test = 0
+    for fe, lab in test:
+        n_test += fe.shape[0]
+
+    print('n examples', n_test)
 
     model_out_path = config.MODEL_DIR + "/{val_f1:.4f}"
     lr = LearningRateScheduler(lr_schedule, verbose=True)
@@ -127,7 +132,8 @@ if __name__ == '__main__':
               steps_per_epoch=config.STEPS_PER_EPOCH,
               epochs=config.EPOCHS,
               validation_data=test,
-              validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
-              callbacks=[chpt, lr, tb])
+              validation_steps=n_test // (2*config.BATCH_SIZE),
+              callbacks=[chpt, lr, tb],
+              verbose=2)
 
     model.save(config.JOB_DIR + "{}".format(config.EPOCHS), save_format='tf')

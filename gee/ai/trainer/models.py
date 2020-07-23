@@ -8,20 +8,21 @@ from tensorflow.keras.activations import relu
 
 
 _epsilon = tf.convert_to_tensor(K.epsilon(), tf.float32)
+weight_decay_const = 0.1
 
 def ConvBlock(x, filters=64, padding='same'):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
-            kernel_regularizer=l2(0.001))(x)
+            kernel_regularizer=l2(weight_decay_const))(x)
     x = BatchNormalization()(x)
     x = Activation(relu)(x)
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
-            kernel_regularizer=l2(0.001))(x)
+            kernel_regularizer=l2(weight_decay_const))(x)
     x = BatchNormalization()(x)
     return Activation(relu)(x)
 
 def ConvBNRelu(x, filters=64):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
-            kernel_regularizer=l2(0.001))(x)
+            kernel_regularizer=l2(weight_decay_const))(x)
     x = BatchNormalization()(x)
     return Activation(relu)(x)
 
@@ -86,4 +87,5 @@ def unet(input_shape, initial_exp=6, n_classes=5):
     return Model(inputs=[features], outputs=[logits])
 
 if __name__ == '__main__':
-    pass
+    m = unet((None, None, 36), initial_exp=4)
+    m.summary(line_length=150)

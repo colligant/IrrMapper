@@ -3,14 +3,16 @@ import time
 import os
 import tensorflow as tf
 from collections import defaultdict
-from scipy.ndimage.morphology import distance_transform_edt
 
-from . import feature_spec
-from . import config
+# from . import feature_spec
+# from . import config
+import matplotlib.pyplot as plt
+import feature_spec
+import config
 
 features_dict = feature_spec.features_dict()
-bands = feature_spec.bands()
-features = feature_spec.features()
+BANDS = feature_spec.bands() # includes mask raster
+FEATURES = feature_spec.features() # only input features
 
 def tf_distance_map(mask):
     im_shape = mask.shape
@@ -36,15 +38,11 @@ def tf_random_rotate_image(image):
   return image
 
 def one_hot(labels, n_classes):
-    h, w, d = labels.shape
+    h, w = labels.shape
     labels = tf.squeeze(labels)
     ls = []
-    border_labels = None
     for i in range(n_classes):
-        if i == 0:
-            where = tf.where(labels != i+1, tf.zeros((h, w)), 1*tf.ones((h,w)))
-        else:
-            where = tf.where(labels != i+1, tf.zeros((h, w)), tf.ones((h,w)))
+        where = tf.where(labels != i+1, tf.zeros((h, w)), 1*tf.ones((h,w)))
         ls.append(where)
     temp = tf.stack(ls, axis=-1)
     return temp
@@ -95,10 +93,10 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes=3):
         dataset = dataset.batch(batch_size)
         for batch in dataset:
             features, y_true = batch[0], batch[1]
-            y_pred = model.predict(features)['logits']
+            y_pred = model(features)['logits']
             instance_count += y_pred.shape[0]
             y_true, y_pred = mask_unlabeled_values(y_true, y_pred)
-            cmat = confusion_matrix(y_true, y_pred, labels=labels)
+            cmat = tf.math.confusion_matrix(y_true, y_pred, num_classes=3)
             out_cmat += cmat
     precision_dict = {}
     recall_dict = {}
@@ -108,7 +106,7 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes=3):
     for i in range(n_classes):
         precision_dict[i] = out_cmat[i, i] / np.sum(out_cmat[i, :]) # row i
         recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) # column i
-    return out_cmat.astype(np.int), recall_dict, precision_dict, instance_count
+    return out_cmat, recall_dict, precision_dict, instance_count
 
 def get_dataset(pattern):
   """Function to read, parse and format to tuple a set of input tfrecord files.
@@ -146,15 +144,41 @@ def to_tuple(inputs):
   Returns:
     A tuple of (inputs, outputs).
   """
-  inputsList = [inputs.get(key) for key in sorted(features)]
-  stacked = tf.stack(inputsList, axis=0)
+  features_list = [inputs.get(key) for key in sorted(FEATURES)]
+  stacked = tf.stack(features_list, axis=0)
   # Convert from CHW to HWC
   stacked = tf.transpose(stacked, [1, 2, 0])
-  inputs = stacked[:,:,:len(bands)] 
-  labels = one_hot(stacked[:,:,len(bands):], n_classes=3)
+  image_stack = add_ndvi(stacked)
+  labels = one_hot(inputs.get('constant'), n_classes=5)
   labels = tf.cast(labels, tf.int32)
-  return inputs, labels
+  return image_stack, labels
 
+def add_ndvi(image_stack):
+
+    '''
+    These indices are hardcoded, and taken from the
+    sorted keys in feature_spec.
+    (NIR - Red) / (NIR + Red)
+        2 0_nir_mean
+        3 0_red_mean
+        8 1_nir_mean
+        9 1_red_mean
+        14 2_nir_mean
+        15 2_red_mean
+        20 3_nir_mean
+        21 3_red_mean
+        26 4_nir_mean
+        27 4_red_mean
+        32 5_nir_mean
+        33 5_red_mean
+    '''
+    indices = [(2, 3), (8, 9), (14, 15), (20, 21), (26, 27), (32, 33)]
+    out = []
+    for nir_idx, red_idx in indices:
+        ndvi = (image_stack[:,:, nir_idx] - image_stack[:,:, red_idx]) /\
+                (image_stack[:,:, nir_idx] + image_stack[:,:, red_idx])
+        out.append(ndvi)
+    return tf.concat((image_stack, tf.stack(out, axis=-1)), axis=-1)
 
 def filter_list_into_classes(lst):
     out = defaultdict(list)
@@ -189,36 +213,69 @@ def make_balanced_training_dataset(root, batch_size=16):
             choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
     return dataset
 
+def sort_files_into_years(files):
+
+    year_to_files = defaultdict(list)
+
+    for f in files:
+        filename = os.path.basename(f)
+        year = int(filename[:4])
+        year_to_files[year].append(f)
+
+    return year_to_files
+
+def make_yearly_test_dataset(root, batch_size=16):
+    pattern = "*gz"
+    test_root = os.path.join(root, pattern)
+    files = tf.io.gfile.glob(test_root)
+    year_to_files = sort_files_into_years(files)
+    year_to_dataset = {}
+    for year, files in year_to_files.items():
+        year_to_dataset[year] = get_dataset(files)
+    return year_to_dataset
+
+good_years = set([2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015])
+
+def filter_unirrigated_years(files):
+
+    out = []
+    for f in files:
+        filename = os.path.basename(f)
+        year = int(filename[:4])
+        if year in good_years:
+            out.append(f)
+    return out
+
+
 def make_test_dataset(root, batch_size=16):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
-    datasets = get_dataset(training_root).batch(config.BATCH_SIZE)
+    files = tf.io.gfile.glob(training_root)
+    files = filter_unirrigated_years(files)
+    datasets = get_dataset(files).batch(config.BATCH_SIZE)
     return datasets
 
-def iterate_over_files_in_dataset(path):
-    training_root = os.path.join(path, "*gz")
-    removed = []
-    r_cnt = 0
-    for f in tf.io.gfile.glob(training_root):
-        print(f)
-        dataset = tf.data.TFRecordDataset([f], compression_type='GZIP')
-        dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
-        dataset = dataset.map(to_tuple, num_parallel_calls=5)
-        try:
-            for example in dataset:
-                xx, yy = example[0].shape, example[1].shape
-        except Exception as e:
-            print(e)
-            # os.remove(f)
-            r_cnt += 1
-            removed.append(f)
+def md(root, batch_size=16):
+    pattern = "*gz"
+    training_root = os.path.join(root, pattern)
+    files = tf.io.gfile.glob(training_root)
+    datasets = get_dataset(files).batch(1)
+    return datasets
 
 
 if __name__ == '__main__':
 
-    from models import unet
-    for d in dataset:
-        print(d.shape)
-        break
+    dataset = md('/tmp/')
+    for i, d in dataset:
+        d = d.numpy()
+        i = i.numpy()
 
-    # c, p, r, i = confusion_matrix_from_generator(datasets, batch_size=16, model=model)
+        mask = np.sum(d, axis=-1) == 0
+        d = np.argmax(d, axis=-1).astype(np.float32)
+        d[mask] = np.nan
+        for j in range(35, 42):
+            fig, ax = plt.subplots(ncols=2)
+            ax[0].imshow(i[0,:, :, j])
+            ax[1].imshow(d.squeeze())
+            plt.suptitle(j)
+            plt.show()
