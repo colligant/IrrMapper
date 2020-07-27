@@ -2,10 +2,10 @@ import numpy as np
 import os
 import tensorflow as tf
 import tensorflow.keras.backend as K
+import tensorflow.keras.callbacks as cbacks
 import argparse
 
 from tensorflow.keras.optimizers import Adam
-from tensorflow.keras.callbacks import TensorBoard, ModelCheckpoint, LearningRateScheduler
 from tensorflow.keras.metrics import Metric
 from tensorflow.keras.utils import Sequence
 
@@ -99,41 +99,44 @@ if __name__ == '__main__':
     root = args.job_dir
 
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
-    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=6)
+    model = models.unet((None, None, 42), n_classes=config.N_CLASSES, initial_exp=4)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
     if config.REMOTE_OR_LOCAL == 'remote':
         train = utils.make_balanced_training_dataset(os.path.join('gs://', config.BUCKET,
-            config.DATA_BUCKET, config.TRAIN_BASE), batch_size=config.BATCH_SIZE)
+            config.DATA_BUCKET, config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=True)
         test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
-            config.DATA_BUCKET, config.TEST_BASE), batch_size=2*config.BATCH_SIZE)
+            config.DATA_BUCKET, config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=True)
     else:
         train = utils.make_training_dataset('/home/thomas/ssd/train-reextracted/',
                 batch_size=config.BATCH_SIZE)
         test = utils.make_test_dataset('/home/thomas/ssd/test-reextracted/',
                 batch_size=2*config.BATCH_SIZE)
 
-    n_test = 0
-    for fe, lab in test:
-        n_test += fe.shape[0]
+    # n_test = 0
+    # for fe, lab in test:
+    #     n_test += fe.shape[0]
 
-    print('n examples', n_test)
+    # print('n examples', n_test)
 
     model_out_path = config.MODEL_DIR + "/{val_f1:.4f}"
-    lr = LearningRateScheduler(lr_schedule, verbose=True)
-    chpt = ModelCheckpoint(model_out_path, 
+    lr = cbacks.LearningRateScheduler(lr_schedule, verbose=True)
+    chpt = cbacks.ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
             monitor='val_f1', mode='max') 
     
-    tb = TensorBoard(log_dir=config.LOGS_DIR,
+    tb = cbacks.TensorBoard(log_dir=config.LOGS_DIR,
                      update_freq='epoch')
+
+    nanloss = cbacks.TerminateOnNaN()
+
     model.fit(train,
               steps_per_epoch=config.STEPS_PER_EPOCH,
               epochs=config.EPOCHS,
               validation_data=test,
-              validation_steps=n_test // (2*config.BATCH_SIZE),
-              callbacks=[chpt, lr, tb],
+              validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
+              callbacks=[chpt, lr, tb, nanloss],
               verbose=2)
 
     model.save(config.JOB_DIR + "{}".format(config.EPOCHS), save_format='tf')

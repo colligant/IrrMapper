@@ -80,7 +80,7 @@ def assign_class_code(shapefile_path):
       return 3
   if 'uncultivated' in shapefile_path:
       return 4
-  if 'points':
+  if 'points' in shapefile_path:
       # annoying workaround for earthengine
       return 10
   else:
