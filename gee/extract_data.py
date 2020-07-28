@@ -7,7 +7,7 @@ import os
 import numpy as np
 from random import shuffle
 
-from ee_utils import assign_class_code, preprocess_data, create_class_labels, temporally_filter_features
+import ee_utils
 from shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 
@@ -18,10 +18,10 @@ lists = ee.List.repeat(list_, KERNEL_SIZE)
 KERNEL = ee.Kernel.fixed(KERNEL_SIZE, KERNEL_SIZE, lists)
 GS_BUCKET = 'ee-irrigation-mapping'
 
-def extract_data_over_shapefiles(mask_shapefiles, year,
-        out_folder, points_to_extract=None, n_shards=10):
+def extract_test_patches(mask_shapefiles, year, 
+        out_folder, patch_shapefile):
 
-    image_stack = preprocess_data(year).toBands()
+    image_stack = ee_utils.preprocess_data(year).toBands()
     # Features dict for TFRecord
     features = [feat['id'] for feat in image_stack.getInfo()['bands']]
     # Add in the mask raster
@@ -29,11 +29,49 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
     columns = [tf.io.FixedLenFeature(shape=KERNEL_SHAPE, dtype=tf.float32) for k in features]
     feature_dict = dict(zip(features, columns))
 
-    shapefile_to_feature_collection = temporally_filter_features(mask_shapefiles, year)
+    shapefile_to_feature_collection = ee_utils.temporally_filter_features(mask_shapefiles, year)
+    class_labels = ee_utils.create_class_labels(shapefile_to_feature_collection)
+    data_stack = ee.Image.cat([image_stack, class_labels]).float()
+
+    patches = ee.FeatureCollection(patch_shapefile)
+    patches = patches.toList(patches.size())
+
+    out_filename = str(year)
+    for idx in range(patches.size().getInfo()):
+
+        patch = ee.Feature(patches.get(idx))
+        features = [feat['id'] for feat in class_labels.getInfo()['bands']]
+        task = ee.batch.Export.image.toCloudStorage(
+                image=data_stack,
+                bucket=GS_BUCKET,
+                description=out_filename + str(time.time()),
+                fileNamePrefix=out_folder +  out_filename + str(time.time()),
+                fileFormat='TFRecord',
+                region=patch.geometry(),
+                scale=30,
+                formatOptions={'patchDimensions':256,
+                               'compressed':True},
+                )
+        task.start()
+
+
+
+def extract_data_over_shapefiles(mask_shapefiles, year,
+        out_folder, points_to_extract=None, n_shards=10):
+
+    image_stack = ee_utils.preprocess_data(year).toBands()
+    # Features dict for TFRecord
+    features = [feat['id'] for feat in image_stack.getInfo()['bands']]
+    # Add in the mask raster
+    features = features + ['constant']
+    columns = [tf.io.FixedLenFeature(shape=KERNEL_SHAPE, dtype=tf.float32) for k in features]
+    feature_dict = dict(zip(features, columns))
+
+    shapefile_to_feature_collection = ee_utils.temporally_filter_features(mask_shapefiles, year)
     if points_to_extract is not None:
         shapefile_to_feature_collection['points'] = points_to_extract
 
-    class_labels = create_class_labels(shapefile_to_feature_collection)
+    class_labels = ee_utils.create_class_labels(shapefile_to_feature_collection)
     data_stack = ee.Image.cat([image_stack, class_labels]).float()
     data_stack = data_stack.neighborhoodToArray(KERNEL)
 
@@ -52,7 +90,7 @@ def extract_data_over_shapefiles(mask_shapefiles, year,
             geometry_sample = ee.ImageCollection([])
             if not n_features:
                 continue
-            n = 400
+            n = 10
             if n_features < n:
                 n = n_features
             indices = np.random.choice(n_features, size=n)
@@ -158,19 +196,24 @@ if __name__ == '__main__':
     train_pts = 'users/tcolligan0/points_to_extract/train_regions_points'
     validation_pts = 'users/tcolligan0/points_to_extract/validation_regions_points'
 
+    test_patches = 'users/tcolligan0/buffered_test_valid_patches/test_regions_buffered'
+    validation_patches = 'users/tcolligan0/buffered_test_valid_patches/validation_regions_buffered'
+
     years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
-    extract_test = True
-    extract_train = True
+    # years = [2015]
+    extract_test = False
+    extract_train = False
     extract_validation = True
     if extract_test:
         for year in years:
-            extract_data_over_shapefiles(test, year,
-                    out_folder='test-data-july23/', points_to_extract=test_pts)
+            extract_test_patches(test, year,
+                    out_folder='test-patches-july28/', patch_shapefile=test_patches)
     if extract_train:
         for year in years:
             extract_data_over_shapefiles(train, year, 
-                    out_folder='train-data-july23/') #, points_to_extract=train_pts)
+                    out_folder='vae_data/l8cloudmask2015/') #, points_to_extract=train_pts)
     if extract_validation:
         for year in years:
-            extract_data_over_shapefiles(validation, year, 
-                    out_folder='validation-data-july23/', points_to_extract=validation_pts)
+            extract_test_patches(validation, year, 
+                    out_folder='validation-patches-for-real-july28/',
+                    patch_shapefile=validation_patches)
