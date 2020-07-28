@@ -77,7 +77,6 @@ class StreamingF1Score(Metric):
         return f1
 
 
-
 def lr_schedule(epoch):
     lr = 1e-3
     rlr = 1e-3
@@ -90,6 +89,7 @@ def lr_schedule(epoch):
     tf.summary.scalar('learning rate', data=rlr, step=epoch)
     return rlr
 
+
 if __name__ == '__main__':
 
 
@@ -99,20 +99,14 @@ if __name__ == '__main__':
     root = args.job_dir
 
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
-    model = models.unet((None, None, 42), n_classes=config.N_CLASSES, initial_exp=4)
+    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=4)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
-    if config.REMOTE_OR_LOCAL == 'remote':
-        train = utils.make_balanced_training_dataset(os.path.join('gs://', config.BUCKET,
-            config.DATA_BUCKET, config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=True)
-        test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
-            config.DATA_BUCKET, config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=True)
-    else:
-        train = utils.make_training_dataset('/home/thomas/ssd/train-reextracted/',
-                batch_size=config.BATCH_SIZE)
-        test = utils.make_test_dataset('/home/thomas/ssd/test-reextracted/',
-                batch_size=2*config.BATCH_SIZE)
+    train = utils.make_balanced_training_dataset(os.path.join('gs://', config.BUCKET,
+        config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=False)
+    test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
+        config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=False)
 
     # n_test = 0
     # for fe, lab in test:

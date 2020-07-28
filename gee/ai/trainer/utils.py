@@ -128,6 +128,7 @@ def get_dataset(pattern, add_ndvi):
   dataset = dataset.map(to_tup, num_parallel_calls=5)
   return dataset
 
+
 def parse_tfrecord(example_proto):
   """the parsing function.
   read a serialized example into the structure defined by features_dict.
@@ -138,8 +139,10 @@ def parse_tfrecord(example_proto):
   """
   return tf.io.parse_single_example(example_proto, features_dict)
 
+
 def to_tuple(add_ndvi):
-  """Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
+  """
+  Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
   Turn the tensors returned by parse_tfrecord into a stack in HWC shape.
   Args:
     inputs: A dictionary of tensors, keyed by feature name.
@@ -199,10 +202,14 @@ def filter_list_into_classes(lst):
     for f in lst:
         if 'irrigated' in f and 'unirrigated' not in f:
             out['irrigated'].append(f)
-        elif 'unirrigated' in f or 'fallow' in f:
+        if 'unirrigated' in f:
             out['unirrigated'].append(f)
-        elif 'uncultivated' in f or 'wetlands' in f:
+        if 'fallow' in f:
+            out['fallow'].append(f)
+        if 'uncultivated' in f:
             out['uncultivated'].append(f)
+        if 'wetlands' in f:
+            out['wetlands'].append(f)
 
     return out
 
@@ -218,13 +225,17 @@ def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
     files = filter_list_into_classes(files) # So I don't have to move files
+    print(files.keys())
     # into separate directories; just use their names.
     for class_name, file_list in files.items():
-        dataset = get_dataset(file_list)
+        dataset = get_dataset(file_list, add_ndvi)
         datasets.append(dataset.repeat())
+    print("_______________________")
+    print(len(datasets))
+    print("_______________________")
     choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
     dataset = tf.data.experimental.choose_from_datasets(datasets,
-            choice_dataset).batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
+            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
     return dataset
 
 def sort_files_into_years(files):
@@ -278,28 +289,23 @@ def md(root, add_ndvi, batch_size=16):
 
 
 if __name__ == '__main__':
-    dataset = make_test_dataset('/tmp/', True)
-    '''
+    dataset = md('/home/thomas/ssd/test_datajuly23/', False)
+    print(dataset)
     for j, (features, labels) in enumerate(dataset):
         labels = labels.numpy()
-        features = features.numpy()
-        print(np.max(features))
-        if len(features[np.isnan(features)]):
-            for i in range(features.shape[-1]):
-                slc = features[0, :, :, i]
-                if len(slc[np.isnan(slc)]):
-                    fig, ax = plt.subplots(ncols=3)
-                    ax[0].imshow(features[0, :, :, 32])
-                    ax[1].imshow(features[0, :, :, 33])
-                    ax[2].imshow(features[0, :, :, 41])
-                    plt.show()
-    mask = np.sum(d, axis=-1) == 0
-    d = np.argmax(d, axis=-1).astype(np.float32)
-    d[mask] = np.nan
-    for j in range(35, 42):
-        fig, ax = plt.subplots(ncols=2)
-        ax[0].imshow(i[0,:, :, j])
-        ax[1].imshow(d.squeeze())
-        plt.suptitle(j)
-        plt.show()
-    '''
+        features = features.numpy().squeeze()
+        mask = np.sum(labels, axis=-1) == 0
+        labels = np.argmax(labels, axis=-1).astype(np.float32)
+        labels_disp = labels
+        labels_disp[mask] = np.nan
+        labels = labels[~mask]
+        s = set(np.unique(labels))
+        print(s)
+        if 0 not in s:
+            continue
+        for j in range(0, 36):
+            fig, ax = plt.subplots(ncols=2)
+            ax[0].imshow(features[:, :, j])
+            ax[1].imshow(labels_disp.squeeze())
+            plt.suptitle(j)
+            plt.show()
