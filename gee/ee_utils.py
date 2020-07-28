@@ -8,6 +8,7 @@ from pprint import pprint
 from shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 YEARS = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
+
 LC8_BANDS = ['B2',   'B3',    'B4',  'B5',  'B6',    'B7']
 LC7_BANDS = ['B1',   'B2',    'B3',  'B4',  'B5',    'B7']
 LC5_BANDS = ['B1',   'B2',    'B3',  'B4',  'B5',    'B7']
@@ -43,6 +44,22 @@ def create_class_labels(shapefile_to_feature_collection):
                 assign_class_code(shapefile)+1)
     return class_labels.updateMask(class_labels)
 
+def ls8mask(img):
+    sr_bands = img.select('B2', 'B3', 'B4', 'B5', 'B6', 'B7')
+    mask_sat = sr_bands.neq(20000)
+    img_nsat = sr_bands.updateMask(mask_sat)
+    mask1 = img.select('pixel_qa').bitwiseAnd(8).eq(0)
+    mask2 = img.select('pixel_qa').bitwiseAnd(32).eq(0)
+    mask_p = mask1.And(mask2)
+    img_masked = img_nsat.updateMask(mask_p)
+    mask_mult = img_masked.multiply(0.0001).copyProperties(img, ['system:time_start'])
+    return mask_mult
+
+def preprocess_data_l8_cloudmask(year):
+
+    l8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+    l8 = l8.map(ls8mask).select(LC8_BANDS, STD_NAMES)
+    return temporalCollection(l8, ee.Date('{}-05-01'.format(year)), 6, 32, 'days')
 
 def preprocess_data(year):
 
