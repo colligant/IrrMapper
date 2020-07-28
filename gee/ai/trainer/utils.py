@@ -225,14 +225,10 @@ def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
     files = filter_list_into_classes(files) # So I don't have to move files
-    print(files.keys())
     # into separate directories; just use their names.
     for class_name, file_list in files.items():
         dataset = get_dataset(file_list, add_ndvi)
         datasets.append(dataset.repeat())
-    print("_______________________")
-    print(len(datasets))
-    print("_______________________")
     choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
     dataset = tf.data.experimental.choose_from_datasets(datasets,
             choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
@@ -271,12 +267,10 @@ def filter_unirrigated_years(files):
             out.append(f)
     return out
 
-
 def make_test_dataset(root, add_ndvi, batch_size=16):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-    # files = filter_unirrigated_years(files)
     datasets = get_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
     return datasets
 

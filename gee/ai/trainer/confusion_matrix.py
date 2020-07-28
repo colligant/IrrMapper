@@ -46,6 +46,7 @@ if __name__ == '__main__':
         dataset = utils.make_test_dataset(args.data_directory, add_ndvi=False)
         if not isinstance(dataset, list):
             dataset = [dataset]
+
         c, p, r, i = utils.confusion_matrix_from_generator(dataset, 
                 batch_size=args.batch_size, model=model, n_classes=args.n_classes)
 
