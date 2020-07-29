@@ -94,7 +94,7 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes):
     for dataset in datasets:
         for batch in dataset:
             features, y_true = batch[0], batch[1]
-            y_pred = model(features)['logits'].numpy()
+            y_pred = model(features)['softmax'].numpy()
             instance_count += y_pred.shape[0]
             y_true, y_pred = mask_unlabeled_values(y_true, y_pred)
             cmat = tf.math.confusion_matrix(y_true, y_pred, num_classes=n_classes)
