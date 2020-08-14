@@ -64,21 +64,25 @@ class GEEExtractor:
             self._create_and_start_table_task(geometry_sample)
 
 
-    def extract_data_over_patches(self, patch_shapefile):
-        if isinstance(patch_shapefile, list):
-            for p_shp in patch_shapefile:
-                p_shp = ee.FeatureCollection(p_shp)
-                patches = p_shp.toList(centroids.size())
-                out_filename = self._create_filename(patch_shapefile)
+    def extract_data_over_patches(self, patch_shapefiles, buffer_region=None):
+        if isinstance(patch_shapefiles, list):
+            for patch_shapefile in patch_shapefiles:
+                patch_shapefile = ee.FeatureCollection(patch_shapefile)
+                patches = patch_shapefile.toList(centroids.size())
+                out_filename = self._create_filename(patch_shapefiles)
                 for idx in range(patches.size().getInfo()):
                     patch = ee.Feature(patches.get(idx))
+                    if buffer_region is not None:
+                        patch = patch.buffer(buffer_region)
                     self._create_and_start_image_task(patch, out_filename)
         else:
-            patches = ee.FeatureCollection(patch_shapefile)
+            patches = ee.FeatureCollection(patch_shapefiles)
             patches = patches.toList(patches.size())
-            out_filename = self._create_filename(patch_shapefile)
+            out_filename = self._create_filename(patch_shapefiles)
             for idx in range(patches.size().getInfo()):
                 patch = ee.Feature(patches.get(idx))
+                if buffer_region is not None:
+                    patch = patch.buffer(buffer_region)
                 self._create_and_start_image_task(patch, out_filename)
                 break
 
@@ -106,6 +110,7 @@ class GEEExtractor:
                 feature_count += 1
             # take care of leftovers
             self._create_and_start_table_task(geometry_sample)
+
 
     def _create_and_start_image_task(self, patch, out_filename):
         task = ee.batch.Export.image.toCloudStorage(
@@ -168,5 +173,6 @@ if __name__ == '__main__':
     train_shapefiles = [root + s for s in train_shapefiles]
 
     patches = 'users/tcolligan0/test_block_aug14'
-    extractor = GEEExtractor(2013, 'aaa256/', train_shapefiles)
-    extractor.extract_data_over_patches(patches)
+    train_shapefiles = ['users/tcolligan0/data_test_block']
+    extractor = GEEExtractor(2013, 'aug14buffered2/', train_shapefiles)
+    extractor.extract_data_over_patches(patches, buffer_region=6000)
