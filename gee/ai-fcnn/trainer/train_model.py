@@ -59,15 +59,15 @@ class StreamingF1Score(Metric):
 
 
     def result(self):
-        f1 = self._result(self.cmats)
+        f1 = self._f1(self.cmats)
         if self.focus_on_class is not None:
-            tf.print(f1[self.focus_on_class], output_stream='file://f1irr.out')
+            # tf.print(f1[self.focus_on_class], output_stream='file://f1irr.out')
             return f1[self.focus_on_class]
         else:
             return tf.reduce_mean(f1)
 
 
-    def _result(self, cmats):
+    def _f1(self, cmats):
         # returns diagonals of shape (num_classes,).
         prec = cmats / tf.reduce_sum(cmats, axis=1)
         rec = cmats / tf.reduce_sum(cmats, axis=0)
@@ -78,7 +78,7 @@ class StreamingF1Score(Metric):
 
 
 def lr_schedule(epoch):
-    lr = 1e-3
+    lr = 1e-2
     rlr = 1e-3
     if epoch > 70:
         rlr = lr / 2
@@ -99,22 +99,27 @@ if __name__ == '__main__':
     root = args.job_dir
 
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
-    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=4)
+    model = models.unet_shared((None, None, 6), n_classes=config.N_CLASSES, initial_exp=5)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 
-    train = utils.make_balanced_training_dataset(os.path.join('gs://', config.BUCKET,
-        config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=False)
-    test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
-        config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=False)
+    if config.REMOTE_OR_LOCAL == 'remote':
+        train = utils.make_balanced_training_dataset(os.path.join('gs://', config.BUCKET,
+            config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=False)
+        test = utils.make_test_dataset(os.path.join('gs://', config.BUCKET, 
+            config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=False)
+    else:
+        train = utils.make_balanced_training_dataset(os.path.join('/home/thomas/ssd/',
+            config.TRAIN_BASE), batch_size=config.BATCH_SIZE, add_ndvi=False)
+        test = utils.make_test_dataset(os.path.join('/home/thomas/ssd/', 
+            config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=False)
 
-    # n_test = 0
-    # for fe, lab in test:
-    #     n_test += fe.shape[0]
+    # print(model.summary())
+    # for features, labels in train:
+    #     print(features.shape)
+    #     exit()
 
-    # print('n examples', n_test)
-
-    model_out_path = config.MODEL_DIR + "/{val_f1:.4f}"
+    model_out_path = config.MODEL_DIR + "/{epoch:03d}_{val_f1:.3f}"
     lr = cbacks.LearningRateScheduler(lr_schedule, verbose=True)
     chpt = cbacks.ModelCheckpoint(model_out_path, 
             save_best_only=True, verbose=True, 
@@ -126,11 +131,13 @@ if __name__ == '__main__':
     nanloss = cbacks.TerminateOnNaN()
 
     model.fit(train,
-              steps_per_epoch=config.STEPS_PER_EPOCH,
+              steps_per_epoch=19446 // config.BATCH_SIZE,
               epochs=config.EPOCHS,
               validation_data=test,
               validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
               callbacks=[chpt, lr, tb, nanloss],
-              verbose=2)
+              )
+              #verbose=2)
+              
 
     model.save(config.JOB_DIR + "{}".format(config.EPOCHS), save_format='tf')

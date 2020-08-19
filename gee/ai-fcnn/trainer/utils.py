@@ -4,6 +4,7 @@ import os
 import tensorflow as tf
 import tensorflow
 from collections import defaultdict
+from random import shuffle
 
 from . import feature_spec
 from . import config
@@ -39,15 +40,19 @@ def tf_random_rotate_image(image):
     image.set_shape(im_shape)
     return image
 
+cc_to_axis = [{1:1}, {2:2, 3:2}, {4:3, 5:3}]
+
 def one_hot(labels, n_classes):
     h, w = labels.shape
     labels = tf.squeeze(labels)
     ls = []
+    for dct in cc_to_axis:
+        for class_code, axis in dct.items():
+            labels = tf.where(labels == class_code, axis*tf.ones((h, w)), labels)
     for i in range(n_classes):
-        where = tf.where(labels != i+1, tf.zeros((h, w)), 1*tf.ones((h,w)))
-        ls.append(where)
-    temp = tf.stack(ls, axis=-1)
-    return temp
+        ls.append(tf.where(labels == i+1, tf.ones((h, w)), tf.zeros((h, w))))
+    return tf.stack(ls, axis=-1)
+
 
 def one_hot_border_labels(labels, n_classes):
     h, w, d = labels.shape
@@ -109,61 +114,102 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes):
         recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) # column i
     return out_cmat, recall_dict, precision_dict, instance_count
 
+def get_shared_dataset(pattern, add_ndvi):
+    """Function to read, parse and format to tuple a set of input tfrecord files.
+    Get all the files matching the pattern, parse and convert to tuple.
+    Args:
+      pattern: A file pattern to match in a Cloud Storage bucket,
+               or list of GCS files
+    Returns:
+      A tf.data.Dataset
+    """
+    if not isinstance(pattern, list):
+        pattern = tf.io.gfile.glob(pattern)
+    shuffle(pattern)
+    dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
+            num_parallel_reads=5)
+    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+    to_tup = to_shared_tuple(add_ndvi)
+    dataset = dataset.map(to_tup, num_parallel_calls=5)
+    return dataset
+
 
 def get_dataset(pattern, add_ndvi):
-  """Function to read, parse and format to tuple a set of input tfrecord files.
-  Get all the files matching the pattern, parse and convert to tuple.
-  Args:
-    pattern: A file pattern to match in a Cloud Storage bucket,
-             or list of GCS files
-  Returns:
-    A tf.data.Dataset
-  """
-  if not isinstance(pattern, list):
-      pattern = tf.io.gfile.glob(pattern)
-  dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
-          num_parallel_reads=8)
-  dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
-  to_tup = to_tuple(add_ndvi)
-  dataset = dataset.map(to_tup, num_parallel_calls=5)
-  return dataset
+    """Function to read, parse and format to tuple a set of input tfrecord files.
+    Get all the files matching the pattern, parse and convert to tuple.
+    Args:
+      pattern: A file pattern to match in a Cloud Storage bucket,
+               or list of GCS files
+    Returns:
+      A tf.data.Dataset
+    """
+    if not isinstance(pattern, list):
+        pattern = tf.io.gfile.glob(pattern)
+    shuffle(pattern)
+    dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
+            num_parallel_reads=5)
+    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+    to_tup = to_tuple(add_ndvi)
+    dataset = dataset.map(to_tup, num_parallel_calls=5)
+    return dataset
 
 
 def parse_tfrecord(example_proto):
-  """the parsing function.
-  read a serialized example into the structure defined by features_dict.
-  args:
-    example_proto: a serialized example.
-  returns:
-    a dictionary of tensors, keyed by feature name.
-  """
-  return tf.io.parse_single_example(example_proto, features_dict)
+    """the parsing function.
+    read a serialized example into the structure defined by features_dict.
+    args:
+      example_proto: a serialized example.
+    returns:
+      a dictionary of tensors, keyed by feature name.
+    """
+    return tf.io.parse_single_example(example_proto, features_dict)
 
+def to_shared_tuple(add_ndvi):
+    """
+    Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
+    Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
+    Args: inputs: A dictionary of tensors, keyed by feature name.
+    Returns:
+      A tuple of (inputs, outputs).
+    """
+    def to_tup(inputs):
+        features_list = [inputs.get(key) for key in sorted(FEATURES)]
+        stacked = tf.stack(features_list, axis=0)
+        # Convert from CHW to HWC
+        stacked = tf.transpose(stacked, [1, 2, 0]) * 0.0001
+        out = []
+        for i in range(6, 42, 6):
+            out.append(stacked[:, :, i-6:i])
+        # 'constant' is the label for label raster. 
+        labels = one_hot(inputs.get('constant'), n_classes=3)
+        labels = tf.cast(labels, tf.int32)
+        return (out[0], out[1], out[2], out[3], out[4], out[5]), labels
+
+    return to_tup
 
 def to_tuple(add_ndvi):
-  """
-  Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
-  Turn the tensors returned by parse_tfrecord into a stack in HWC shape.
-  Args:
-    inputs: A dictionary of tensors, keyed by feature name.
-  Returns:
-    A tuple of (inputs, outputs).
-  """
-  def to_tup(inputs):
-      features_list = [inputs.get(key) for key in sorted(FEATURES)]
-      stacked = tf.stack(features_list, axis=0)
-      # Convert from CHW to HWC
-      stacked = tf.transpose(stacked, [1, 2, 0]) * 0.0001
-      if add_ndvi:
-          image_stack = add_ndvi_raster(stacked)
-      else:
-          image_stack = stacked
-      # 'constant' is the label for label raster. 
-      labels = one_hot(inputs.get('constant'), n_classes=5)
-      labels = tf.cast(labels, tf.int32)
-      return image_stack, labels
+    """
+    Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
+    Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
+    Args: inputs: A dictionary of tensors, keyed by feature name.
+    Returns:
+      A tuple of (inputs, outputs).
+    """
+    def to_tup(inputs):
+        features_list = [inputs.get(key) for key in sorted(FEATURES)]
+        stacked = tf.stack(features_list, axis=0)
+        # Convert from CHW to HWC
+        stacked = tf.transpose(stacked, [1, 2, 0]) * 0.0001
+        if add_ndvi:
+            image_stack = add_ndvi_raster(stacked)
+        else:
+            image_stack = stacked
+        # 'constant' is the label for label raster. 
+        labels = one_hot(inputs.get('constant'), n_classes=3)
+        labels = tf.cast(labels, tf.int32)
+        return image_stack, labels
 
-  return to_tup
+    return to_tup
 
 def add_ndvi_raster(image_stack):
 
@@ -220,18 +266,35 @@ def make_training_dataset(root, add_ndvi, batch_size=16):
     dataset = dataset.batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
     return dataset
 
+def _assign_weight(name):
+
+    if 'irrigated' in name and 'unirrigated' not in name:
+        return 0.33
+    if 'unirrigated' in name:
+        return 0.165
+    if 'wetlands' in name:
+        return 0.165
+    if 'uncultivated' in name:
+        return 0.165
+    if 'fallow' in name:
+        return 0.165
+
 def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
     files = filter_list_into_classes(files) # So I don't have to move files
     # into separate directories; just use their names.
+    weights = []
     for class_name, file_list in files.items():
-        dataset = get_dataset(file_list, add_ndvi)
-        datasets.append(dataset.repeat())
+        dataset = get_shared_dataset(file_list, add_ndvi)
+        datasets.append(dataset.shuffle(config.BUFFER_SIZE).repeat())
+        weights.append(_assign_weight(class_name))
     choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
+    # choose or sample?
     dataset = tf.data.experimental.choose_from_datasets(datasets,
-            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
+            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(config.BUFFER_SIZE)
+    # dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
     return dataset
 
 def sort_files_into_years(files):
@@ -271,7 +334,7 @@ def make_test_dataset(root, add_ndvi, batch_size=16):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-    datasets = get_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
+    datasets = get_shared_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
     return datasets
 
 def md(root, add_ndvi, batch_size=16):
