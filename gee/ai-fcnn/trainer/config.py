@@ -12,9 +12,9 @@ else:
     MODEL_DIR = JOB_DIR + '/model'
     LOGS_DIR = JOB_DIR + '/logs'
 
-TRAIN_BASE = 'train-data-july23/'
-TEST_BASE = 'test-patches-july28/'
-TEST_SIZE = 5904 #8673 #19446 
+TRAIN_BASE = 'train-data-aug25/'
+TEST_BASE = 'test-data-aug24/'
+TEST_SIZE = 393 * 9
 BATCH_SIZE = 16
 
 EPOCHS = 300
