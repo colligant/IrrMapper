@@ -99,7 +99,7 @@ if __name__ == '__main__':
     root = args.job_dir
 
     sf1 = StreamingF1Score(num_classes=config.N_CLASSES, focus_on_class=0)
-    model = models.unet_shared((None, None, 6), n_classes=config.N_CLASSES, initial_exp=5)
+    model = models.unet((None, None, 36), n_classes=config.N_CLASSES, initial_exp=5)
     model.compile(Adam(1e-3), loss='categorical_crossentropy',
             metrics=[m_acc, sf1])
 

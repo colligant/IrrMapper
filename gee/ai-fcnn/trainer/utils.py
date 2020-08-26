@@ -287,7 +287,7 @@ def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
     # into separate directories; just use their names.
     weights = []
     for class_name, file_list in files.items():
-        dataset = get_shared_dataset(file_list, add_ndvi)
+        dataset = get_dataset(file_list, add_ndvi)
         datasets.append(dataset.shuffle(config.BUFFER_SIZE).repeat())
         weights.append(_assign_weight(class_name))
     choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
@@ -298,7 +298,6 @@ def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
     return dataset
 
 def sort_files_into_years(files):
-
     year_to_files = defaultdict(list)
 
     for f in files:
@@ -334,7 +333,7 @@ def make_test_dataset(root, add_ndvi, batch_size=16):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-    datasets = get_shared_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
+    datasets = get_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
     return datasets
 
 def md(root, add_ndvi, batch_size=16):
