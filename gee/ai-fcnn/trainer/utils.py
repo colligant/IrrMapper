@@ -1,6 +1,7 @@
 import numpy as np
 import time
 import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
 import tensorflow
 from collections import defaultdict
@@ -46,9 +47,6 @@ def one_hot(labels, n_classes):
     h, w = labels.shape
     labels = tf.squeeze(labels)
     ls = []
-    for dct in cc_to_axis:
-        for class_code, axis in dct.items():
-            labels = tf.where(labels == class_code, axis*tf.ones((h, w)), labels)
     for i in range(n_classes):
         ls.append(tf.where(labels == i+1, tf.ones((h, w)), tf.zeros((h, w))))
     return tf.stack(ls, axis=-1)
@@ -206,7 +204,7 @@ def to_tuple(add_ndvi):
             image_stack = stacked
         # 'constant' is the label for label raster. 
         labels = one_hot(inputs.get('constant'), n_classes=3)
-        labels = tf.cast(labels, tf.int32)
+        # labels = tf.cast(labels, tf.int32)
         return image_stack, labels
 
     return to_tup
@@ -269,20 +267,23 @@ def make_training_dataset(root, add_ndvi, batch_size=16):
 def _assign_weight(name):
 
     if 'irrigated' in name and 'unirrigated' not in name:
-        return 0.33
+        return 0.5
     if 'unirrigated' in name:
-        return 0.165
+        return 0.5 / 3
     if 'wetlands' in name:
-        return 0.165
+        return 0.5 / 3
     if 'uncultivated' in name:
-        return 0.165
+        return 0.5 / 3
     if 'fallow' in name:
         return 0.165
 
-def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
+def make_balanced_training_dataset(root, add_ndvi, batch_size):
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
+    print(len(files))
+    files = [f for f in files if '2008' in f]
+    print(len(files))
     files = filter_list_into_classes(files) # So I don't have to move files
     # into separate directories; just use their names.
     weights = []
@@ -292,9 +293,10 @@ def make_balanced_training_dataset(root, add_ndvi, batch_size=16):
         weights.append(_assign_weight(class_name))
     choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
     # choose or sample?
-    dataset = tf.data.experimental.choose_from_datasets(datasets,
-            choice_dataset).batch(config.BATCH_SIZE).repeat().shuffle(config.BUFFER_SIZE)
-    # dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
+    # dataset = tf.data.experimental.choose_from_datasets(datasets,
+    #         choice_dataset).batch(batch_size).shuffle(config.BUFFER_SIZE)
+    dataset = tf.data.experimental.sample_from_datasets(datasets,
+            weights=weights).batch(batch_size).shuffle(config.BUFFER_SIZE)
     return dataset
 
 def sort_files_into_years(files):
@@ -329,11 +331,14 @@ def filter_unirrigated_years(files):
             out.append(f)
     return out
 
-def make_test_dataset(root, add_ndvi, batch_size=16):
+def make_test_dataset(root, add_ndvi, batch_size):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-    datasets = get_dataset(files, add_ndvi).batch(config.BATCH_SIZE)
+    print(len(files))
+    files = [f for f in files if '2008' in f]
+    print(len(files))
+    datasets = get_dataset(files, add_ndvi).batch(batch_size)
     return datasets
 
 def md(root, add_ndvi, batch_size=16):
@@ -344,24 +349,25 @@ def md(root, add_ndvi, batch_size=16):
     return datasets
 
 
+
 if __name__ == '__main__':
-    dataset = md('/home/thomas/ssd/test_datajuly23/', False)
-    print(dataset)
-    for j, (features, labels) in enumerate(dataset):
-        labels = labels.numpy()
-        features = features.numpy().squeeze()
-        mask = np.sum(labels, axis=-1) == 0
-        labels = np.argmax(labels, axis=-1).astype(np.float32)
-        labels_disp = labels
-        labels_disp[mask] = np.nan
-        labels = labels[~mask]
-        s = set(np.unique(labels))
-        print(s)
-        if 0 not in s:
-            continue
-        for j in range(0, 36):
-            fig, ax = plt.subplots(ncols=2)
-            ax[0].imshow(features[:, :, j])
-            ax[1].imshow(labels_disp.squeeze())
-            plt.suptitle(j)
-            plt.show()
+    def a(rast):
+        rast, _ = mask_unlabeled_values(rast, rast)
+        unique,counts = np.unique(rast, return_counts=True)
+        #print(unique)
+        if 1 in set(unique):
+            return 1
+        return unique[int(np.argmax(counts))]
+
+    train = make_balanced_training_dataset(os.path.join('/home/thomas/ssd/',
+        config.TRAIN_BASE), batch_size=1, add_ndvi=False)
+
+    import matplotlib.pyplot as plt
+    poss = [0, 0, 0]
+    i = 0
+    for features, labels in train:
+        poss[int(a(labels))] += 1
+        if i > 1000:
+            break
+    print(poss)
+

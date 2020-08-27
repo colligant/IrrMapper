@@ -7,15 +7,16 @@ if REMOTE_OR_LOCAL == 'remote':
     MODEL_DIR = JOB_DIR + '/model'
     LOGS_DIR = JOB_DIR + '/logs'
 else:
-    FOLDER = '/home/thomas/models/shared-weights'
+    FOLDER = '/home/thomas/models/aug28lr0.01'
     JOB_DIR = FOLDER + '/trainer'
     MODEL_DIR = JOB_DIR + '/model'
     LOGS_DIR = JOB_DIR + '/logs'
 
 TRAIN_BASE = 'train-data-aug25/'
 TEST_BASE = 'test-data-aug24/'
-TEST_SIZE = 393 * 9
+TEST_SIZE = 3492
 BATCH_SIZE = 16
+TRAIN_STEPS = 1000
 
 EPOCHS = 300
 STEPS_PER_EPOCH = 400

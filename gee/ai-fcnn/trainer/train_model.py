@@ -78,8 +78,8 @@ class StreamingF1Score(Metric):
 
 
 def lr_schedule(epoch):
-    lr = 1e-2
-    rlr = 1e-3
+    lr = 0.01
+    rlr = 0.01
     if epoch > 70:
         rlr = lr / 2
     if epoch > 150:
@@ -115,9 +115,11 @@ if __name__ == '__main__':
             config.TEST_BASE), batch_size=2*config.BATCH_SIZE, add_ndvi=False)
 
     # print(model.summary())
-    # for features, labels in train:
-    #     print(features.shape)
-    #     exit()
+    # cnt = 0
+    # for i, (features, labels) in enumerate(test):
+    #     cnt += features.shape[0]
+    # print(cnt)
+    # exit()
 
     model_out_path = config.MODEL_DIR + "/{epoch:03d}_{val_f1:.3f}"
     lr = cbacks.LearningRateScheduler(lr_schedule, verbose=True)
@@ -131,10 +133,9 @@ if __name__ == '__main__':
     nanloss = cbacks.TerminateOnNaN()
 
     model.fit(train,
-              steps_per_epoch=19446 // config.BATCH_SIZE,
+              steps_per_epoch=1258 // 2,
               epochs=config.EPOCHS,
               validation_data=test,
-              validation_steps=config.TEST_SIZE // (2*config.BATCH_SIZE),
               callbacks=[chpt, lr, tb, nanloss],
               )
               #verbose=2)

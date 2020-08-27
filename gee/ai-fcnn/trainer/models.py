@@ -173,6 +173,46 @@ def unet(input_shape, initial_exp=6, n_classes=5):
     
     return Model(inputs=[features], outputs=[logits])
 
+def cnn(input_shape, initial_exp):
+    features = Input(shape=input_shape)
+    base = 2
+
+    c1 = ConvBlock(features, base**initial_exp)
+    mp1 = MaxPooling2D(pool_size=2, strides=2)(c1)
+
+    initial_exp += 1
+
+    c2 = ConvBlock(mp1, base**initial_exp)
+    mp2 = MaxPooling2D(pool_size=2, strides=2)(c2)
+
+    initial_exp += 1
+
+    c3 = ConvBlock(mp2, base**initial_exp)
+    mp3 = MaxPooling2D(pool_size=2, strides=2)(c3)
+
+    initial_exp += 1 
+
+    c4 = ConvBlock(mp3, base**initial_exp)
+    mp4 = MaxPooling2D(pool_size=2, strides=2)(c4)
+
+    initial_exp += 1
+
+    # 1024 filters
+    c5 = ConvBlock(mp4, base**initial_exp)
+    x = MaxPooling2D(pool_size=2, strides=2)(c5)
+    x = ConvBlock(x, base**initial_exp)
+    x = MaxPooling2D(pool_size=2, strides=2)(x)
+    x = ConvBlock(x, 32)
+    x = MaxPooling2D(pool_size=2, strides=2)(x)
+    x = ConvBlock(x, 16)
+    x = Flatten()(x)
+    x = Dense(128, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dense(32, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dense(1, activation='sigmoid')(x)
+    return Model(inputs=[features], outputs=[x])
+    return x
 if __name__ == '__main__':
     m = unet((None, None, 36), initial_exp=4)
     m.summary(line_length=150)
