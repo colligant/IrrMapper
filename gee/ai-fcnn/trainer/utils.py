@@ -267,23 +267,33 @@ def make_training_dataset(root, add_ndvi, batch_size=16):
 def _assign_weight(name):
 
     if 'irrigated' in name and 'unirrigated' not in name:
-        return 0.5
+        return 0.4
     if 'unirrigated' in name:
-        return 0.5 / 3
+        return 0.6 / 3
     if 'wetlands' in name:
-        return 0.5 / 3
+        return 0.6 / 3
     if 'uncultivated' in name:
-        return 0.5 / 3
+        return 0.6 / 3
     if 'fallow' in name:
         return 0.165
+
+def make_test_dataset(root, add_ndvi, batch_size):
+    pattern = "*gz"
+    training_root = os.path.join(root, pattern)
+    files = tf.io.gfile.glob(training_root)
+    # print(len(files))
+    # files = [f for f in files if '2008' in f]
+    # print(len(files))
+    datasets = get_dataset(files, add_ndvi).batch(batch_size)
+    return datasets
 
 def make_balanced_training_dataset(root, add_ndvi, batch_size):
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
-    print(len(files))
-    files = [f for f in files if '2008' in f]
-    print(len(files))
+    # print(len(files))
+    # files = [f for f in files if '2008' in f]
+    # print(len(files))
     files = filter_list_into_classes(files) # So I don't have to move files
     # into separate directories; just use their names.
     weights = []
@@ -331,15 +341,6 @@ def filter_unirrigated_years(files):
             out.append(f)
     return out
 
-def make_test_dataset(root, add_ndvi, batch_size):
-    pattern = "*gz"
-    training_root = os.path.join(root, pattern)
-    files = tf.io.gfile.glob(training_root)
-    print(len(files))
-    files = [f for f in files if '2008' in f]
-    print(len(files))
-    datasets = get_dataset(files, add_ndvi).batch(batch_size)
-    return datasets
 
 def md(root, add_ndvi, batch_size=16):
     pattern = "*gz"

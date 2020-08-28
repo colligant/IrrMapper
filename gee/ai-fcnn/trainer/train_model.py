@@ -78,13 +78,13 @@ class StreamingF1Score(Metric):
 
 
 def lr_schedule(epoch):
-    lr = 0.01
-    rlr = 0.01
-    if epoch > 70:
-        rlr = lr / 2
-    if epoch > 150:
-        rlr = lr / 4
+    lr = 0.001
+    rlr = 0.001
     if epoch > 300:
+        rlr = lr / 2
+    if epoch > 500:
+        rlr = lr / 4
+    if epoch > 700:
         rlr = lr / 8
     tf.summary.scalar('learning rate', data=rlr, step=epoch)
     return rlr
@@ -133,12 +133,10 @@ if __name__ == '__main__':
     nanloss = cbacks.TerminateOnNaN()
 
     model.fit(train,
-              steps_per_epoch=1258 // 2,
+              steps_per_epoch=1258,
               epochs=config.EPOCHS,
               validation_data=test,
               callbacks=[chpt, lr, tb, nanloss],
-              )
-              #verbose=2)
-              
+              verbose=2)
 
     model.save(config.JOB_DIR + "{}".format(config.EPOCHS), save_format='tf')
