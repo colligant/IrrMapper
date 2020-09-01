@@ -1,0 +1,30 @@
+model_settings:
+    unet_initial_exp: 4
+    unet_input_channels: 36
+    apply_batchnorm: False
+    objective: 'categorical_crossentropy'
+    initial_learning_rate: 0.01
+    decay_steps: 100000
+    decay_rate: 0.6
+    staircase: True
+    weight_decay_const: 0.01
+    batch_size: 64
+    num_classes: 3
+    training_steps_per_epoch: 1258
+    epochs: 1000
+    f1_focus_on_class: 0
+    no_cuda: False
+    print_model_summary: False
+    train_verbosity: 2 # 0:silent, 1:progress bar, 2:one line per epoch
+
+data_settings:
+    data_root: '/home/thomas/ssd/'
+    train_path: 'train-data-aug25/'
+    test_path: 'test-data-aug24/'
+    sample_weights_train: [0, 0, 0]
+    model_save_directory: '/home/thomas/models/testnewconfig/'
+    shuffle_buffer_size: 10
+    add_ndvi: False
+    train_year: null
+    test_year: null
+    tb_update_freq: 'epoch'

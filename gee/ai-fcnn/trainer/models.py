@@ -7,24 +7,23 @@ from tensorflow.keras.regularizers import l2
 from tensorflow.keras.activations import relu
 
 
-_epsilon = tf.convert_to_tensor(K.epsilon(), tf.float32)
-weight_decay_const = 0.01
-
-def ConvBlock(x, filters=64, padding='same'):
+def ConvBlock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
-    x = BatchNormalization()(x)
+    if apply_batchnorm:
+        x = BatchNormalization()(x)
     x = Activation(relu)(x)
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
-    x = BatchNormalization()(x)
+    if apply_batchnorm:
+        x = BatchNormalization()(x)
     return Activation(relu)(x)
 
-def ConvBNRelu(x, filters=64):
+def ConvBNRelu(x, filters, weight_decay_const, apply_batchnorm):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
             kernel_regularizer=l2(weight_decay_const))(x)
-    x = BatchNormalization()(x)
-
+    if apply_batchnorm:
+        x = BatchNormalization()(x)
     return Activation(relu)(x)
 
 def unet_shared_layers(inputs):
@@ -114,105 +113,80 @@ def unet_shared(input_shape, initial_exp, n_classes):
     return Model(inputs=[inp1, inp2, inp3, inp4, inp5, inp6], outputs=[logits])
 
 
-def unet(input_shape, initial_exp=6, n_classes=5):
+def unet(input_shape, initial_exp, n_classes, weight_decay_const,
+        apply_batchnorm):
      
     features = Input(shape=input_shape)
     base = 2
 
-    c1 = ConvBlock(features, base**initial_exp)
+    c1 = ConvBlock(features, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     mp1 = MaxPooling2D(pool_size=2, strides=2)(c1)
 
     initial_exp += 1
 
-    c2 = ConvBlock(mp1, base**initial_exp)
+    c2 = ConvBlock(mp1, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     mp2 = MaxPooling2D(pool_size=2, strides=2)(c2)
 
     initial_exp += 1
 
-    c3 = ConvBlock(mp2, base**initial_exp)
+    c3 = ConvBlock(mp2, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     mp3 = MaxPooling2D(pool_size=2, strides=2)(c3)
 
     initial_exp += 1 
 
-    c4 = ConvBlock(mp3, base**initial_exp)
+    c4 = ConvBlock(mp3, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     mp4 = MaxPooling2D(pool_size=2, strides=2)(c4)
 
     initial_exp += 1
 
     # 1024 filters
-    c5 = ConvBlock(mp4, base**initial_exp)
+    c5 = ConvBlock(mp4, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     initial_exp -= 1
 
     u1 = UpSampling2D(size=(2, 2))(c5)
-    c6 = ConvBNRelu(u1, filters=base**initial_exp)
+    c6 = ConvBNRelu(u1, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     u1_c4 = Concatenate()([c6, c4])
-    c7 = ConvBlock(u1_c4, filters=base**initial_exp)
+    c7 = ConvBlock(u1_c4, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
 
     initial_exp -= 1
     
     u2 = UpSampling2D(size=(2, 2))(c7)
-    c8 = ConvBNRelu(u2, filters=base**initial_exp)
+    c8 = ConvBNRelu(u2, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     u2_c3 = Concatenate()([c8, c3])
-    c9 = ConvBlock(u2_c3, filters=base**initial_exp)
+    c9 = ConvBlock(u2_c3, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
 
     initial_exp -= 1
     
     u3 = UpSampling2D(size=(2, 2))(c9)
-    c10 = ConvBNRelu(u3, filters=base**initial_exp)
+    c10 = ConvBNRelu(u3, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     u3_c2 = Concatenate()([c10, c2])
-    c11 = ConvBlock(u3_c2, filters=base**initial_exp)
+    c11 = ConvBlock(u3_c2, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
 
     initial_exp -= 1
     u4 = UpSampling2D(size=(2, 2))(c11)
-    c12 = ConvBNRelu(u4, filters=base**initial_exp)
+    c12 = ConvBNRelu(u4, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
     u4_c1 = Concatenate()([c12, c1])
-    c13 = ConvBlock(u4_c1, filters=base**initial_exp)
+    c13 = ConvBlock(u4_c1, base**initial_exp, weight_decay_const,
+            apply_batchnorm)
 
-    logits = Conv2D(filters=n_classes, kernel_size=1, strides=1,
-                    activation='softmax', name='softmax')(c13)
+    softmax = Conv2D(n_classes, kernel_size=1, strides=1,
+                        activation='softmax', name='softmax',
+                        kernel_regularizer=l2(weight_decay_const))(c13)
     
-    return Model(inputs=[features], outputs=[logits])
+    return Model(inputs=[features], outputs=[softmax])
 
-def cnn(input_shape, initial_exp):
-    features = Input(shape=input_shape)
-    base = 2
-
-    c1 = ConvBlock(features, base**initial_exp)
-    mp1 = MaxPooling2D(pool_size=2, strides=2)(c1)
-
-    initial_exp += 1
-
-    c2 = ConvBlock(mp1, base**initial_exp)
-    mp2 = MaxPooling2D(pool_size=2, strides=2)(c2)
-
-    initial_exp += 1
-
-    c3 = ConvBlock(mp2, base**initial_exp)
-    mp3 = MaxPooling2D(pool_size=2, strides=2)(c3)
-
-    initial_exp += 1 
-
-    c4 = ConvBlock(mp3, base**initial_exp)
-    mp4 = MaxPooling2D(pool_size=2, strides=2)(c4)
-
-    initial_exp += 1
-
-    # 1024 filters
-    c5 = ConvBlock(mp4, base**initial_exp)
-    x = MaxPooling2D(pool_size=2, strides=2)(c5)
-    x = ConvBlock(x, base**initial_exp)
-    x = MaxPooling2D(pool_size=2, strides=2)(x)
-    x = ConvBlock(x, 32)
-    x = MaxPooling2D(pool_size=2, strides=2)(x)
-    x = ConvBlock(x, 16)
-    x = Flatten()(x)
-    x = Dense(128, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dense(32, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dense(1, activation='sigmoid')(x)
-    return Model(inputs=[features], outputs=[x])
-    return x
 if __name__ == '__main__':
     m = unet((None, None, 36), initial_exp=4)
     m.summary(line_length=150)

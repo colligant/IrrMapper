@@ -31,21 +31,8 @@ def distance_map(mask):
     mask[0, 0] = 0
     return mask
 
-def random_rotate_image(image):
-    image = rotate(image, np.random.uniform(-30, 30), reshape=False)
-    return image
-
-def tf_random_rotate_image(image):
-    im_shape = image.shape
-    [image,] = tf.py_function(random_rotate_image, [image], [tf.float32])
-    image.set_shape(im_shape)
-    return image
-
-cc_to_axis = [{1:1}, {2:2, 3:2}, {4:3, 5:3}]
-
 def one_hot(labels, n_classes):
     h, w = labels.shape
-    labels = tf.squeeze(labels)
     ls = []
     for i in range(n_classes):
         ls.append(tf.where(labels == i+1, tf.ones((h, w)), tf.zeros((h, w))))
@@ -77,7 +64,9 @@ def mask_unlabeled_values(y_true, y_pred):
     y_pred: softmaxed tensor
     y_true: one-hot tensor of labels
     Returns two vectors of labels. Assumes input
-    tensors are 4-dimensional (batchxrowxcolxdepth)
+    tensors are 4-dimensional (batchxrowxcolxdepth),
+    and nodata is indicated by all 0s over depth in
+    the one-hot tensor.
     '''
     mask = tf.not_equal(tf.reduce_sum(y_true, axis=-1), 0)
     y_true = tf.argmax(y_true, axis=-1)
@@ -108,9 +97,10 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes):
         precision_dict[i] = 0
         recall_dict[i] = 0
     for i in range(n_classes):
-        precision_dict[i] = out_cmat[i, i] / np.sum(out_cmat[i, :]) # row i
-        recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) # column i
+        precision_dict[i] = out_cmat[i, i] / np.sum(out_cmat[i, :]) 
+        recall_dict[i] = out_cmat[i, i] / np.sum(out_cmat[:, i]) 
     return out_cmat, recall_dict, precision_dict, instance_count
+
 
 def get_shared_dataset(pattern, add_ndvi):
     """Function to read, parse and format to tuple a set of input tfrecord files.
@@ -118,7 +108,9 @@ def get_shared_dataset(pattern, add_ndvi):
     Args:
       pattern: A file pattern to match in a Cloud Storage bucket,
                or list of GCS files
-    Returns:
+      add_ndvi:  Whether or not to add ndvi to the feature stak, computed on the fly.
+
+      Returns:
       A tf.data.Dataset
     """
     if not isinstance(pattern, list):
@@ -132,25 +124,32 @@ def get_shared_dataset(pattern, add_ndvi):
     return dataset
 
 
-def get_dataset(pattern, add_ndvi):
+def get_dataset(pattern, add_ndvi, n_classes):
     """Function to read, parse and format to tuple a set of input tfrecord files.
     Get all the files matching the pattern, parse and convert to tuple.
     Args:
       pattern: A file pattern to match in a Cloud Storage bucket,
                or list of GCS files
+      add_ndvi:  Whether or not to add ndvi to the feature stak, computed on the fly.
+      n_classes: The number of classes in the segmentation dataset, used 
+                 to define the shape of the one hot matrix.
     Returns:
       A tf.data.Dataset
     """
     if not isinstance(pattern, list):
-        pattern = tf.io.gfile.glob(pattern)
-    shuffle(pattern)
-    dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
-            num_parallel_reads=5)
-    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
-    to_tup = to_tuple(add_ndvi)
-    dataset = dataset.map(to_tup, num_parallel_calls=5)
-    return dataset
+        files = tf.io.gfile.glob(pattern)
+        shuffle(files)
+        dataset = tf.data.TFRecordDataset(files, compression_type='GZIP',
+                num_parallel_reads=5)
+    else:
+        dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
+                num_parallel_reads=5)
 
+    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+    to_tuple_fn = to_tuple(add_ndvi, n_classes)
+    dataset = dataset.map(to_tuple_fn, num_parallel_calls=5)
+
+    return dataset
 
 def parse_tfrecord(example_proto):
     """the parsing function.
@@ -168,24 +167,24 @@ def to_shared_tuple(add_ndvi):
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
     Args: inputs: A dictionary of tensors, keyed by feature name.
     Returns:
-      A tuple of (inputs, outputs).
+      A tuple of ((inputs_0, ..., inputs_n), outputs), where inputs is
+      slices of the input tensor with channel dimension 6.
     """
-    def to_tup(inputs):
+    def _to_tuple(inputs):
         features_list = [inputs.get(key) for key in sorted(FEATURES)]
         stacked = tf.stack(features_list, axis=0)
         # Convert from CHW to HWC
         stacked = tf.transpose(stacked, [1, 2, 0]) * 0.0001
         out = []
-        for i in range(6, 42, 6):
+        for i in range(6, stacked.shape[-1], 6):
             out.append(stacked[:, :, i-6:i])
         # 'constant' is the label for label raster. 
         labels = one_hot(inputs.get('constant'), n_classes=3)
-        labels = tf.cast(labels, tf.int32)
         return (out[0], out[1], out[2], out[3], out[4], out[5]), labels
 
-    return to_tup
+    return _to_tuple
 
-def to_tuple(add_ndvi):
+def to_tuple(add_ndvi, n_classes):
     """
     Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
@@ -193,7 +192,7 @@ def to_tuple(add_ndvi):
     Returns:
       A tuple of (inputs, outputs).
     """
-    def to_tup(inputs):
+    def _to_tuple(inputs):
         features_list = [inputs.get(key) for key in sorted(FEATURES)]
         stacked = tf.stack(features_list, axis=0)
         # Convert from CHW to HWC
@@ -203,11 +202,10 @@ def to_tuple(add_ndvi):
         else:
             image_stack = stacked
         # 'constant' is the label for label raster. 
-        labels = one_hot(inputs.get('constant'), n_classes=3)
-        # labels = tf.cast(labels, tf.int32)
+        labels = one_hot(inputs.get('constant'), n_classes=n_classes)
         return image_stack, labels
 
-    return to_tup
+    return _to_tuple
 
 def add_ndvi_raster(image_stack):
 
@@ -241,6 +239,7 @@ def add_ndvi_raster(image_stack):
         out.append(ndvi)
     return tf.concat((image_stack, tf.stack(out, axis=-1)), axis=-1)
 
+
 def filter_list_into_classes(lst):
     out = defaultdict(list)
     for f in lst:
@@ -257,13 +256,6 @@ def filter_list_into_classes(lst):
 
     return out
 
-def make_training_dataset(root, add_ndvi, batch_size=16):
-    pattern = "*gz"
-    files = tf.io.gfile.glob(os.path.join(root, pattern))
-    dataset = get_dataset(files)
-    dataset = dataset.batch(batch_size).repeat().shuffle(buffer_size=config.BUFFER_SIZE)
-    return dataset
-
 def _assign_weight(name):
 
     if 'irrigated' in name and 'unirrigated' not in name:
@@ -277,98 +269,45 @@ def _assign_weight(name):
     if 'fallow' in name:
         return 0.165
 
-def make_test_dataset(root, add_ndvi, batch_size):
+def make_validation_dataset(root, add_ndvi, batch_size, year,
+        n_classes):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-    # print(len(files))
-    # files = [f for f in files if '2008' in f]
-    # print(len(files))
-    datasets = get_dataset(files, add_ndvi).batch(batch_size)
+
+    if year is not None:
+        files = [f for f in files if year in f]
+
+    datasets = get_dataset(files, add_ndvi, n_classes).batch(batch_size)
     return datasets
 
-def make_balanced_training_dataset(root, add_ndvi, batch_size):
+def make_balanced_training_dataset(root,
+        add_ndvi,
+        batch_size, 
+        sample_weights, 
+        year,
+        buffer_size, 
+        n_classes):
+
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
-    # print(len(files))
-    # files = [f for f in files if '2008' in f]
-    # print(len(files))
-    files = filter_list_into_classes(files) # So I don't have to move files
-    # into separate directories; just use their names.
+
+    if year is not None:
+        files = [f for f in files if year in f]
+
+    files = filter_list_into_classes(files) 
+    
     weights = []
     for class_name, file_list in files.items():
-        dataset = get_dataset(file_list, add_ndvi)
+        dataset = get_dataset(file_list, add_ndvi, n_classes)
         datasets.append(dataset.shuffle(config.BUFFER_SIZE).repeat())
         weights.append(_assign_weight(class_name))
-    choice_dataset = tf.data.Dataset.range(len(datasets)).repeat()
-    # choose or sample?
-    # dataset = tf.data.experimental.choose_from_datasets(datasets,
-    #         choice_dataset).batch(batch_size).shuffle(config.BUFFER_SIZE)
+
     dataset = tf.data.experimental.sample_from_datasets(datasets,
-            weights=weights).batch(batch_size).shuffle(config.BUFFER_SIZE)
+            weights=weights).batch(batch_size).shuffle(buffer_size)
     return dataset
-
-def sort_files_into_years(files):
-    year_to_files = defaultdict(list)
-
-    for f in files:
-        filename = os.path.basename(f)
-        year = int(filename[:4])
-        year_to_files[year].append(f)
-
-    return year_to_files
-
-def make_yearly_test_dataset(root, add_ndvi, batch_size=16):
-    pattern = "*gz"
-    test_root = os.path.join(root, pattern)
-    files = tf.io.gfile.glob(test_root)
-    year_to_files = sort_files_into_years(files)
-    year_to_dataset = {}
-    for year, files in year_to_files.items():
-        year_to_dataset[year] = get_dataset(files, add_ndvi)
-    return year_to_dataset
-
-good_years = set([2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015])
-
-def filter_unirrigated_years(files):
-
-    out = []
-    for f in files:
-        filename = os.path.basename(f)
-        year = int(filename[:4])
-        if year in good_years:
-            out.append(f)
-    return out
-
-
-def md(root, add_ndvi, batch_size=16):
-    pattern = "*gz"
-    training_root = os.path.join(root, pattern)
-    files = tf.io.gfile.glob(training_root)
-    datasets = get_dataset(files, add_ndvi).batch(1)
-    return datasets
-
 
 
 if __name__ == '__main__':
-    def a(rast):
-        rast, _ = mask_unlabeled_values(rast, rast)
-        unique,counts = np.unique(rast, return_counts=True)
-        #print(unique)
-        if 1 in set(unique):
-            return 1
-        return unique[int(np.argmax(counts))]
-
-    train = make_balanced_training_dataset(os.path.join('/home/thomas/ssd/',
-        config.TRAIN_BASE), batch_size=1, add_ndvi=False)
-
-    import matplotlib.pyplot as plt
-    poss = [0, 0, 0]
-    i = 0
-    for features, labels in train:
-        poss[int(a(labels))] += 1
-        if i > 1000:
-            break
-    print(poss)
-
+    pass
