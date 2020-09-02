@@ -1,7 +1,6 @@
 import os
 # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
-import gc
 tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.FATAL)
 import numpy as np
 from pdb import set_trace
@@ -13,7 +12,6 @@ import rasterio
 import tensorflow.keras.backend as K
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
-from models import unet
 from random import shuffle
 
 class AdamOptimizer:
@@ -39,8 +37,8 @@ class AdamOptimizer:
 
     @tf.function(
         input_signature=(
-          tf.TensorSpec(shape=[None, None, 30], dtype=tf.float32),
-          tf.TensorSpec(shape=[None, None, 30], dtype=tf.float32),)
+          tf.TensorSpec(shape=[None, None, 36], dtype=tf.float32),
+          tf.TensorSpec(shape=[None, None, 36], dtype=tf.float32),)
     )
     def step(self, img, grads):
         self.t += 1
@@ -56,13 +54,13 @@ def calc_loss(channel_idx):
 
     def lfunc(img, model):
         img_batch = tf.expand_dims(img, 0)
-        layer_act = model(img_batch)[0, :, :, channel_idx]
+        layer_act = model(img_batch)[0, channel_idx]
         layer_act = [layer_act]
         losses = []
         for act in layer_act:
             loss = tf.math.reduce_mean(act)
             losses.append(loss)
-        return tf.reduce_sum(losses)
+        return tf.reduce_sum(losses) # + tf.reduce_sum(img**2)
     
     return lfunc
 
@@ -76,7 +74,7 @@ class FeatVis(tf.Module):
 
     @tf.function(
         input_signature=(
-          tf.TensorSpec(shape=[None,None,30], dtype=tf.float32),
+          tf.TensorSpec(shape=[None,None,36], dtype=tf.float32),
           tf.TensorSpec(shape=[], dtype=tf.int32),
           tf.TensorSpec(shape=[], dtype=tf.float32),)
     )
@@ -102,33 +100,31 @@ class FeatVis(tf.Module):
         return loss, img
 
 if __name__ == '__main__':
-    model_path = './my_model.h5'
+    model_path = './fcnn.h5'
 
     model = tf.keras.models.load_model(model_path)
-
     # for i, layer in enumerate(model.layers):
     #     print(i, layer.name)
     # exit()
-    # #vis_model = tf.keras.Model(inputs=model.input, outputs=model.layers[43].output)
-    vis_model = tf.keras.Model(inputs=model.input, outputs=model.layers[76].output)
+    vis_model = tf.keras.Model(inputs=model.input, outputs=model.layers[40].output)
+    i = 0
     for layer in vis_model.layers:
         layer.trainable = False
-
-    for channel_idx in [2]:
-
-        init_img = np.zeros((30, 32, 32))
+    #     print(i, layer.name)
+    #     i+=1
+    for channel_idx in [3]:
+        init_img = np.zeros((36, 32, 32))
         img = tf.convert_to_tensor(tf.cast(tf.transpose(init_img, [1, 2, 0]), tf.float32))
-
-        step_size = tf.convert_to_tensor(1.0)
+        step_size = tf.convert_to_tensor(0.1)
         optim = AdamOptimizer(img, step_size)
         loss_func = calc_loss(channel_idx)
         vis = FeatVis(vis_model, loss_func, optim)
 
-        for i in range(1000):
+        for i in range(300):
             loss, img = vis(img, tf.constant(100), tf.constant(step_size))
             print(tf.reduce_mean(img).numpy())
-            if i % 100 == 0 and i <= 500:
-                img = gaussian_filter(img, sigma=2)
+            if (i % 50) == 0:
+                pass
 
         for i in range(img.shape[2]):
             fig, ax = plt.subplots()

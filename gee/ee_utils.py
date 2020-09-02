@@ -44,6 +44,7 @@ def create_class_labels(shapefile_to_feature_collection):
                 assign_class_code(shapefile)+1)
     return class_labels.updateMask(class_labels)
 
+
 def ls8mask(img):
     sr_bands = img.select('B2', 'B3', 'B4', 'B5', 'B6', 'B7')
     mask_sat = sr_bands.neq(20000)
@@ -55,11 +56,12 @@ def ls8mask(img):
     mask_mult = img_masked.multiply(0.0001).copyProperties(img, ['system:time_start'])
     return mask_mult
 
+
 def preprocess_data_l8_cloudmask(year):
 
     l8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
-    l8 = l8.map(ls8mask).select(LC8_BANDS, STD_NAMES)
-    return temporalCollection(l8, ee.Date('{}-05-01'.format(year)), 6, 32, 'days')
+    l8clean = l8.map(ls8mask).select(LC8_BANDS, STD_NAMES)
+    return temporalCollection(l8clean, ee.Date('{}-05-01'.format(year)), 6, 32, 'days')
 
 def preprocess_data(year):
 
@@ -92,12 +94,12 @@ def assign_class_code(shapefile_path):
   if 'unirrigated' in shapefile_path:
       return 1
   if 'fallow' in shapefile_path:
-      return 2
+      return 1
   if 'wetlands' in shapefile_path:
-      return 3
+      return 2
   if 'uncultivated' in shapefile_path:
-      return 4
-  if 'points' in shapefile_path:
+      return 2
+  if 'data_test_block' in shapefile_path:
       # annoying workaround for earthengine
       return 10
   else:
@@ -133,13 +135,13 @@ def make_shape_to_year_and_count_dict(shapefile_dir):
     return shape_to_year_and_count
 
 if __name__ == '__main__':
-    shapefile_train = '/home/thomas/irrigated-training-data/ee-dataset/train/'
-    shapefile_test = '/home/thomas/irrigated-training-data/ee-dataset/test/'
-    shapefile_valid = '/home/thomas/irrigated-training-data/ee-dataset/validation/'
+    shapefile_train = '/home/thomas/irrigated-training-data-aug21/ee-dataset/data/train/'
+    shapefile_test = '/home/thomas/irrigated-training-data-aug21/ee-dataset/data/test/'
+    # shapefile_valid = '/home/thomas/irrigated-training-data-aug21/ee-dataset/validation/'
 
     train = make_shape_to_year_and_count_dict(shapefile_train)
     test = make_shape_to_year_and_count_dict(shapefile_test)
-    valid = make_shape_to_year_and_count_dict(shapefile_valid)
-    merged = {**train, **test, **valid} # wow python
+    # valid = make_shape_to_year_and_count_dict(shapefile_valid)
+    merged = {**train, **test} # wow python
 
     pprint(merged)

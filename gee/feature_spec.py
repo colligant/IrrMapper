@@ -43,7 +43,7 @@ features_dict_ ={'0_blue_mean': tf.io.FixedLenFeature(shape=[256, 256], dtype=tf
 def features_dict():
     return features_dict_
 def bands():
-    bands = list(features_dict_.keys())[:-1]
+    bands = sorted(list(features_dict_.keys()))[:-1]
     return bands
 def features():
     features = list(features_dict_.keys())
@@ -51,5 +51,5 @@ def features():
 
 if __name__ == '__main__':
 
-    print(len(features_dict_))
+    print(bands())
 

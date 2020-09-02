@@ -12,19 +12,19 @@ def ConvBlock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
             kernel_regularizer=l2(weight_decay_const))(x)
     if apply_batchnorm:
         x = BatchNormalization()(x)
-    x = Activation(relu)(x)
+    x = Activation('relu')(x)
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
     if apply_batchnorm:
         x = BatchNormalization()(x)
-    return Activation(relu)(x)
+    return Activation('relu')(x)
 
 def ConvBNRelu(x, filters, weight_decay_const, apply_batchnorm):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding='same',
             kernel_regularizer=l2(weight_decay_const))(x)
     if apply_batchnorm:
         x = BatchNormalization()(x)
-    return Activation(relu)(x)
+    return Activation('relu')(x)
 
 def unet_shared_layers(inputs):
     x = ConvBlock(inputs, 64)

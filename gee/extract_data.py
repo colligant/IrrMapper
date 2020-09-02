@@ -34,10 +34,14 @@ class GEEExtractor:
                 ee_utils.temporally_filter_features(self.mask_shapefiles, self.year)
         class_labels = ee_utils.create_class_labels(self.shapefile_to_feature_collection)
         self.image_stack = ee.Image.cat([image_stack, class_labels]).float()
+
         list_ = ee.List.repeat(1, self.kernel_size)
         lists = ee.List.repeat(list_, self.kernel_size)
         kernel = ee.Kernel.fixed(self.kernel_size, self.kernel_size, lists)
         self.data_stack = self.image_stack.neighborhoodToArray(kernel)
+
+        self.projection = ee.Projection('EPSG:5070')
+        self.data_stack = self.data_stack.reproject(self.projection, None, 30)
 
 
     def extract_data_over_centroids(self, mask_shapefiles):
@@ -97,6 +101,7 @@ class GEEExtractor:
                 self._create_and_start_image_task(patch, out_filename)
 
 
+
     def extract_data_over_shapefile(self, shapefile, percent=100):
         '''
         Create the data stack on the constructor. This 
@@ -104,7 +109,7 @@ class GEEExtractor:
         the shapefile that is passed in. percent governs
         the number of features chosen to extract over.
         '''
-        feature_collection = ee.FeatureCollection(shapefile)
+        feature_collection = self.shapefile_to_feature_collection[shapefile]
         feature_collection = feature_collection.toList(feature_collection.size())
         n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][self.year]
         out_filename = self._create_filename(shapefile)
@@ -116,7 +121,6 @@ class GEEExtractor:
         else:
             print('No features for {}'.format(out_filename))
             return
-        return
         geometry_sample = ee.ImageCollection([])
         feature_count = 0
         for idx in indices:
@@ -129,18 +133,18 @@ class GEEExtractor:
             geometry_sample = geometry_sample.merge(sample)
             if (feature_count+1) % self.n_shards == 0:
                 geometry_sample = self._create_and_start_table_task(geometry_sample,
-                        out_filename)
+                        out_filename + "reproj")
             feature_count += 1
         # take care of leftovers
-        self._create_and_start_table_task(geometry_sample)
+        self._create_and_start_table_task(geometry_sample, out_filename)
 
 
     def _create_and_start_image_task(self, patch, out_filename):
-        task = ee.batch.Export.image.toDrive(
+        task = ee.batch.Export.image.toCloudStorage(
                 image=self.image_stack,
-                # bucket=self.out_gs_bucket,
+                bucket=self.out_gs_bucket,
                 description=out_filename + str(time.time()),
-                fileNamePrefix=self.out_folder +  out_filename + str(time.time()),
+                fileNamePrefix=self.out_folder + "epsg_32613" + out_filename + str(time.time()),
                 fileFormat='TFRecord',
                 region=patch.geometry(),
                 crs='EPSG:5070',
@@ -150,6 +154,7 @@ class GEEExtractor:
                                'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
+
     
     def _create_and_start_table_task(self, geometry_sample, out_filename):
         task = ee.batch.Export.table.toCloudStorage(
@@ -191,19 +196,14 @@ if __name__ == '__main__':
 
     train_root = 'users/tcolligan0/train-data-aug24/'
     train_shapefiles = ['irrigated_train', 'uncultivated_train', 'unirrigated_train',
-            'wetlands_buffered_train', 'fallow_train']
+                        'wetlands_buffered_train', 'fallow_train']
     train_shapefiles = [train_root + s for s in train_shapefiles]
 
-#     patches = 'users/tcolligan0/test_block_aug14'
-#     shapefile = 'users/tcolligan0/data_test_block'
-# 
-#     extractor = GEEExtractor(year=2013, 
-#                              out_gs_bucket=gs_bucket, 
-#                              out_folder='centroidsaug20/', 
-#                              mask_shapefiles=[shapefile])
-#     extractor.extract_data_over_patches(patches)
-
-    years = [2015]
+    
+    # done as of aug 24, 2020: 2008, 2015
+    all_year = [2003,2008,2009,2010,2011,2012,2013,2015]
+    years = [2003, 2009, 2010, 2011, 2012, 2013]
+    years = [2008, 2015]
     patches = 'users/tcolligan0/test-data-aug24/test_regions'
     extract_test = False
     extract_train = True
@@ -211,8 +211,9 @@ if __name__ == '__main__':
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='test-data-aug24/', 
-                                     mask_shapefiles=test_shapefiles)
+                                     out_folder='projection-investigationepsg32613/', 
+                                     mask_shapefiles=test_shapefiles,
+                                     n_shards=100)
 
             extractor.extract_data_over_patches(patches)
 
@@ -220,13 +221,13 @@ if __name__ == '__main__':
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='train-data-aug17/', 
+                                     out_folder='train-data-epsg5070-sept1/', 
                                      mask_shapefiles=train_shapefiles,
-                                     n_shards=15)
+                                     n_shards=100)
             for shapefile in train_shapefiles:
-                if 'irrigated_train' in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=50)
+                if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
+                    extractor.extract_data_over_shapefile(shapefile, percent=40)
                 elif 'wetlands' in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=10)
+                    extractor.extract_data_over_shapefile(shapefile, percent=20)
                 else:
                     extractor.extract_data_over_shapefile(shapefile, percent=20)

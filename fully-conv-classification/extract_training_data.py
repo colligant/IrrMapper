@@ -122,8 +122,6 @@ def create_class_labels(shapefiles, assign_shapefile_class_code, mask_file):
     return class_labels
 
 
-
-
 def concatenate_fmasks_single_scene(class_labels, image_directory, target_date, class_mask_geo):
 
     date = None
@@ -271,8 +269,6 @@ def _target_indices_from_class_labels(class_labels, tile_size):
     tiles_x = range(min_x, max_x, tile_size)
     return tiles_y, tiles_x
 
-
-
 class_code_to_class_name = {0:'irrigated', 1:'unirrigated', 2:'uncultivated'}
 
 def _assign_class_name_to_tile(class_label_tile, nodata=-9999):
@@ -339,14 +335,7 @@ def _random_tif_from_directory(image_directory):
 
 
 def min_data_tiles_to_cover_labels_plot(shapefiles, path, row, year, image_directory, tile_size=608):
-    path_row_year = "_".join([str(path), str(row), str(year)])
-    image_files = glob(os.path.join(image_directory, "*tif"))
-    image_directory = os.path.join(image_directory, path_row_year)
-    for f in image_files:
-        p, r = parse_path_row(f)
-        if int(p) == int(path) and int(r) == int(row):
-            mask_file = f
-            break
+    mask_file = '/home/thomas/ssd/stacked_images/image_d2013_10_24_p037028.tif'
     mask, mask_meta = load_raster(mask_file)
     mask = np.zeros_like(mask).astype(np.int)
     first = True
@@ -362,7 +351,7 @@ def min_data_tiles_to_cover_labels_plot(shapefiles, path, row, year, image_direc
             first = False
         else:
             class_labels[~out.mask] = class_code
-    class_labels = concatenate_fmasks(image_directory, class_labels, mask_meta) 
+    # class_labels = concatenate_fmasks(image_directory, class_labels, mask_meta) 
     where = np.nonzero(~class_labels.mask[0])
     max_y = np.max(where[0])
     min_y = np.min(where[0])
@@ -391,9 +380,11 @@ def min_data_tiles_to_cover_labels_plot(shapefiles, path, row, year, image_direc
     for t, mn, mx in zip(tiles_x, x_min, x_max):
         plt.plot([t, t], [mn, mx], 'r')
 
+    class_labels[~class_labels.mask] = 1
     plt.imshow(class_labels[0])
-    plt.title('path/row: {} {} percent data pixels: {:.3f}'.format(path, row, frac))
-    plt.colorbar()
+    plt.xticks([])
+    plt.yticks([])
+    plt.title('tiles to extract, WRS2 path/row 37/28')
     plt.show()
 
 
@@ -685,6 +676,15 @@ def isirr(f):
     return None
                     
 if __name__ == '__main__':
+
+    shapefiles = ['irrigated_15JUL_test_37_28.shp', 'uncultivated_4APR_test_37_28.shp',
+            'unirrigated_4APR_test_37_28.shp' ,'wetlands_15JUL_test_37_28.shp']
+    shapefiles = [os.path.join('shapefile_data/2013/test/', f) for f in shapefiles]
+    min_data_tiles_to_cover_labels_plot(shapefiles, 37, 28, 2013, 
+            '/home/thomas/ssd/stacked_images/', tile_size=608)
+
+'''
+if __name__ == '__main__':
     
     # 3 different methods...
     # 1. Just LC08 for 2013     [x]
@@ -753,3 +753,5 @@ if __name__ == '__main__':
             extract_training_data_over_centroids(train_centroids, image_stack, 
                     train_class_labels, target_meta, meta, save_directory=train_dir)
         gc.collect()
+'''
+

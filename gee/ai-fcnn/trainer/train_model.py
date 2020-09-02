@@ -77,7 +77,7 @@ class StreamingF1Score(tf.keras.metrics.Metric):
 
 def create_new_model_save_directory(model_directory):
     timestr = time.strftime("%Y%m%d-%H%M%S")
-    return model_directory + timestr
+    return model_directory + '-' +  timestr
 
 class ConfigObj:
 
@@ -160,10 +160,13 @@ if __name__ == '__main__':
         model_save_directory = create_new_model_save_directory(model_save_directory)
         print("Dir. {} already created. Creating new directory {}".format(config.data_settings.model_save_directory, model_save_directory))
         os.mkdir(model_save_directory)
+        config.data_settings.model_save_directory = model_save_directory
+    else:
+        os.mkdir(config.data_settings.model_save_directory)
 
 
-    config.data_settings.model_save_directory = model_save_directory
-    shutil.copy2(args.config_file, os.path.join(model_save_directory, os.path.basename(args.config_file)))
+    shutil.copy2(args.config_file, os.path.join(config.data_settings.model_save_directory, 
+        os.path.basename(args.config_file)))
     model_out_path = os.path.join(config.data_settings.model_save_directory, 'model/'
             "/{epoch:03d}_{val_f1:.3f}")
     log_out_path = os.path.join(config.data_settings.model_save_directory,

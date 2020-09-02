@@ -1,17 +1,12 @@
 import numpy as np
 import time
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
 import tensorflow
 from collections import defaultdict
 from random import shuffle
 
 from . import feature_spec
-from . import config
-# import matplotlib.pyplot as plt
-# import feature_spec
-# import config
 
 features_dict = feature_spec.features_dict()
 BANDS = feature_spec.bands() # includes mask raster
@@ -276,7 +271,9 @@ def make_validation_dataset(root, add_ndvi, batch_size, year,
     files = tf.io.gfile.glob(training_root)
 
     if year is not None:
+        print(len(files))
         files = [f for f in files if year in f]
+        print(len(files))
 
     datasets = get_dataset(files, add_ndvi, n_classes).batch(batch_size)
     return datasets
@@ -294,14 +291,16 @@ def make_balanced_training_dataset(root,
     files = tf.io.gfile.glob(os.path.join(root, pattern))
 
     if year is not None:
+        print(len(files))
         files = [f for f in files if year in f]
+        print(len(files))
 
     files = filter_list_into_classes(files) 
     
     weights = []
     for class_name, file_list in files.items():
         dataset = get_dataset(file_list, add_ndvi, n_classes)
-        datasets.append(dataset.shuffle(config.BUFFER_SIZE).repeat())
+        datasets.append(dataset.shuffle(buffer_size).repeat())
         weights.append(_assign_weight(class_name))
 
     dataset = tf.data.experimental.sample_from_datasets(datasets,
