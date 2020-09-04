@@ -104,7 +104,7 @@ class GEEExtractor:
             geometry_sample = geometry_sample.merge(sample)
             if (feature_count+1) % self.n_shards == 0:
                 geometry_sample = self._create_and_start_table_task(geometry_sample,
-                        out_filename + "reproj")
+                        out_filename)
             feature_count += 1
         # take care of leftovers
         self._create_and_start_table_task(geometry_sample, out_filename)
@@ -124,7 +124,6 @@ class GEEExtractor:
                                'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
-        exit()
 
     
     def _create_and_start_table_task(self, geometry_sample, out_filename):
