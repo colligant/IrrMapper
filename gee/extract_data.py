@@ -70,7 +70,6 @@ class GEEExtractor:
                 self._create_and_start_image_task(patch, out_filename)
 
 
-
     def extract_data_over_shapefile(self, shapefile, percent=100):
         '''
         Create the data stack on the constructor. This 
@@ -116,14 +115,13 @@ class GEEExtractor:
                 image=self.image_stack,
                 bucket=self.out_gs_bucket,
                 description=out_filename + str(time.time()),
-                fileNamePrefix=os.path.join(self.out_folder, out_filename + 'nocrs' + str(time.time())),
-                fileFormat='GeoTIFF',
+                fileNamePrefix=os.path.join(self.out_folder, out_filename + str(time.time())),
+                fileFormat='TFRecord',
                 region=patch.geometry(),
-                #crs='EPSG:5070',
                 scale=30,
-                #formatOptions={'patchDimensions':256,
-                #               'compressed':True,
-                #               'maskedThreshold':0.99},
+                formatOptions={'patchDimensions':256,
+                               'compressed':True,
+                               'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
         exit()
@@ -181,8 +179,6 @@ if __name__ == '__main__':
     extract_test = True
     extract_train = False
 
-    data_shapefiles = ['users/tcolligan0/test_features']
-    patches = 'users/tcolligan0/data_test_block'
 
     if extract_test:
         for year in years:
@@ -200,10 +196,9 @@ if __name__ == '__main__':
                                      mask_shapefiles=test_shapefiles,
                                      n_shards=100)
             for shapefile in data_shapefiles:
-                extractor.extract_data_over_shapefile(shapefile, percent=100)
-                # if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
-                #     extractor.extract_data_over_shapefile(shapefile, percent=40)
-                # elif 'wetlands' in shapefile:
-                #     extractor.extract_data_over_shapefile(shapefile, percent=20)
-                # else:
-                #     extractor.extract_data_over_shapefile(shapefile, percent=20)
+                if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
+                    extractor.extract_data_over_shapefile(shapefile, percent=40)
+                elif 'wetlands' in shapefile:
+                    extractor.extract_data_over_shapefile(shapefile, percent=20)
+                else:
+                    extractor.extract_data_over_shapefile(shapefile, percent=20)
