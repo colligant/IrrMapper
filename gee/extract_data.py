@@ -42,38 +42,7 @@ class GEEExtractor:
 
         self.projection = ee.Projection('EPSG:5070')
         self.data_stack = self.data_stack.reproject(self.projection, None, 30)
-
-
-    def extract_data_over_centroids(self, mask_shapefiles):
-        feature_collection = ee.FeatureCollection(mask_shapefiles)
-        centroids = feature_collection.map(lambda feature: \
-                ee.Feature(feature.geometry().centroid()))
-        centroids = centroids.toList(centroids.size())
-        feature_collection = feature_collection.toList(feature_collection.size())
-        out_filename = self._create_filename(mask_shapefiles)
-        geometry_sample = ee.ImageCollection([])
-        feature_count = 0
-        for idx in range(centroids.size().getInfo()):
-            # print(ee.Feature(centroids.get(idx)).buffer(10).geometry().getInfo())
-            sample = self.data_stack.sample(
-                            region=ee.Feature(feature_collection.get(idx)).geometry(),
-                            scale=30,
-                            numPixels=1,
-                            tileScale=8
-                            )
-            geometry_sample = geometry_sample.merge(sample)
-            print(sample.getInfo())
-            if (feature_count+1) % self.n_shards == 0:
-                geometry_sample = self._create_and_start_table_task(geometry_sample, 
-                        out_filename)
-            feature_count += 1
-
-        # take care of leftovers
-        print(geometry_sample.getInfo())
-        exit()
-        self._create_and_start_table_task(geometry_sample, 
-                out_filename)
-
+        self.image_stack = self.image_stack.reproject(self.projection, None, 30)
 
     def extract_data_over_patches(self, patch_shapefiles, buffer_region=None):
         '''
@@ -109,7 +78,10 @@ class GEEExtractor:
         the shapefile that is passed in. percent governs
         the number of features chosen to extract over.
         '''
-        feature_collection = self.shapefile_to_feature_collection[shapefile]
+        try:
+            feature_collection = self.shapefile_to_feature_collection[shapefile]
+        except KeyError as e:
+            feature_collection = ee.FeatureCollection(shapefile)
         feature_collection = feature_collection.toList(feature_collection.size())
         n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][self.year]
         out_filename = self._create_filename(shapefile)
@@ -144,16 +116,17 @@ class GEEExtractor:
                 image=self.image_stack,
                 bucket=self.out_gs_bucket,
                 description=out_filename + str(time.time()),
-                fileNamePrefix=self.out_folder + "epsg_32613" + out_filename + str(time.time()),
-                fileFormat='TFRecord',
+                fileNamePrefix=os.path.join(self.out_folder, out_filename + 'nocrs' + str(time.time())),
+                fileFormat='GeoTIFF',
                 region=patch.geometry(),
-                crs='EPSG:5070',
+                #crs='EPSG:5070',
                 scale=30,
-                formatOptions={'patchDimensions':256,
-                               'compressed':True,
-                               'maskedThreshold':0.99},
+                #formatOptions={'patchDimensions':256,
+                #               'compressed':True,
+                #               'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
+        exit()
 
     
     def _create_and_start_table_task(self, geometry_sample, out_filename):
@@ -205,29 +178,32 @@ if __name__ == '__main__':
     years = [2003, 2009, 2010, 2011, 2012, 2013]
     years = [2008, 2015]
     patches = 'users/tcolligan0/test-data-aug24/test_regions'
-    extract_test = False
-    extract_train = True
+    extract_test = True
+    extract_train = False
+
+    data_shapefiles = ['users/tcolligan0/test_features']
+    patches = 'users/tcolligan0/data_test_block'
+
     if extract_test:
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='projection-investigationepsg32613/', 
+                                     out_folder='invest-sept2/', 
                                      mask_shapefiles=test_shapefiles,
                                      n_shards=100)
-
             extractor.extract_data_over_patches(patches)
-
     if extract_train:
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='train-data-epsg5070-sept1/', 
-                                     mask_shapefiles=train_shapefiles,
+                                     out_folder='invest-sept2/', 
+                                     mask_shapefiles=test_shapefiles,
                                      n_shards=100)
-            for shapefile in train_shapefiles:
-                if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=40)
-                elif 'wetlands' in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=20)
-                else:
-                    extractor.extract_data_over_shapefile(shapefile, percent=20)
+            for shapefile in data_shapefiles:
+                extractor.extract_data_over_shapefile(shapefile, percent=100)
+                # if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
+                #     extractor.extract_data_over_shapefile(shapefile, percent=40)
+                # elif 'wetlands' in shapefile:
+                #     extractor.extract_data_over_shapefile(shapefile, percent=20)
+                # else:
+                #     extractor.extract_data_over_shapefile(shapefile, percent=20)
