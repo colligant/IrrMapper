@@ -152,7 +152,8 @@ if __name__ == '__main__':
         batch_size=config.model_settings.batch_size, 
         add_ndvi=config.data_settings.add_ndvi,
         year=config.data_settings.test_year,
-        n_classes=config.model_settings.num_classes
+        n_classes=config.model_settings.num_classes,
+        buffer_size=config.data_settings.shuffle_buffer_size
         )
 
     if os.path.isdir(config.data_settings.model_save_directory):

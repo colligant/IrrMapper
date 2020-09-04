@@ -1,7 +1,6 @@
 import os
 import tensorflow as tf
 
-
 from argparse import ArgumentParser
 from . import utils 
 
@@ -23,7 +22,7 @@ if __name__ == '__main__':
     ap.add_argument('--batch-size', type=int, default=16)
     ap.add_argument('--n-classes', type=int)
     ap.add_argument('--use-cuda', action='store_true')
-    ap.add_argument('--year', default=None)
+    ap.add_argument('--year', default=None, type=str)
     ap.add_argument('--add-ndvi', action='store_true')
 
     args = ap.parse_args()

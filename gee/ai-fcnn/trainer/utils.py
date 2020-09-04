@@ -112,10 +112,10 @@ def get_shared_dataset(pattern, add_ndvi):
         pattern = tf.io.gfile.glob(pattern)
     shuffle(pattern)
     dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
-            num_parallel_reads=5)
-    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+            num_parallel_reads=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.map(parse_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     to_tup = to_shared_tuple(add_ndvi)
-    dataset = dataset.map(to_tup, num_parallel_calls=5)
+    dataset = dataset.map(to_tup, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     return dataset
 
 
@@ -135,14 +135,15 @@ def get_dataset(pattern, add_ndvi, n_classes):
         files = tf.io.gfile.glob(pattern)
         shuffle(files)
         dataset = tf.data.TFRecordDataset(files, compression_type='GZIP',
-                num_parallel_reads=5)
+                num_parallel_reads=tf.data.experimental.AUTOTUNE)
     else:
+        shuffle(pattern)
         dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
-                num_parallel_reads=5)
+                num_parallel_reads=tf.data.experimental.AUTOTUNE)
 
-    dataset = dataset.map(parse_tfrecord, num_parallel_calls=5)
+    dataset = dataset.map(parse_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     to_tuple_fn = to_tuple(add_ndvi, n_classes)
-    dataset = dataset.map(to_tuple_fn, num_parallel_calls=5)
+    dataset = dataset.map(to_tuple_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     return dataset
 
@@ -254,18 +255,18 @@ def filter_list_into_classes(lst):
 def _assign_weight(name):
 
     if 'irrigated' in name and 'unirrigated' not in name:
-        return 0.4
+        return 0.3
     if 'unirrigated' in name:
-        return 0.6 / 3
+        return 0.7 / 3
     if 'wetlands' in name:
-        return 0.6 / 3
+        return 0.7 / 3
     if 'uncultivated' in name:
-        return 0.6 / 3
+        return 0.7 / 3
     if 'fallow' in name:
         return 0.165
 
 def make_validation_dataset(root, add_ndvi, batch_size, year,
-        n_classes):
+        n_classes, buffer_size):
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
@@ -275,7 +276,7 @@ def make_validation_dataset(root, add_ndvi, batch_size, year,
         files = [f for f in files if year in f]
         print(len(files))
 
-    datasets = get_dataset(files, add_ndvi, n_classes).batch(batch_size)
+    datasets = get_dataset(files, add_ndvi, n_classes).shuffle(buffer_size).batch(batch_size)
     return datasets
 
 def make_balanced_training_dataset(root,
