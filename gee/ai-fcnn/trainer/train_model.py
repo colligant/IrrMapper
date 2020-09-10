@@ -8,11 +8,55 @@ import tensorflow.keras.callbacks as cbacks
 import argparse
 import time
 import shutil
-
+import subprocess
 from types import SimpleNamespace
 
 from . import utils
 from . import models
+
+
+class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
+
+    def __init__(self, initial_learning_rate,
+                       decay_steps, 
+                       decay_rate,
+                       staircase,
+                       first_decay_step,
+                       name=None):
+
+        self.initial_learning_rate = tf.convert_to_tensor(initial_learning_rate, dtype=tf.float32)
+        self.decay_steps = tf.convert_to_tensor(decay_steps, dtype=tf.float32)
+        self.decay_rate = tf.convert_to_tensor(decay_rate, dtype=tf.float32)
+        self.first_decay_step = first_decay_step
+        self.staircase = staircase
+        self.name = name
+        self.step_count = 0
+
+
+    def __call__(self, step):
+
+        self.step_count += 1
+
+        if self.step_count > self.first_decay_step:
+            return initial_learning_rate
+
+        p = step / self.decay_steps
+
+        if self.staircase:
+            p = tf.math.floor(p)
+
+        return tf.math.multiply(self.initial_learning_rate, tf.math.pow(self.decay_rate, p))
+
+
+    def get_config(self):
+        return {
+                "initial_learning_rate": self.initial_learning_rate,
+                "decay_steps": self.decay_steps,
+                "decay_rate": self.decay_rate,
+                "staircase": self.staircase,
+                "first_decay_step": self.first_decay_step,
+                "name": self.name
+            }
 
 
 def m_acc(y_true, y_pred):
@@ -59,7 +103,6 @@ class StreamingF1Score(tf.keras.metrics.Metric):
     def result(self):
         f1 = self._f1(self.cmats)
         if self.focus_on_class is not None:
-            # tf.print(f1[self.focus_on_class], output_stream='file://f1irr.out')
             return f1[self.focus_on_class]
         else:
             return tf.reduce_mean(f1)
@@ -98,6 +141,11 @@ def parse_yaml_config_file(config_file):
    
     return ConfigObj(config_file)
 
+
+def lr_schedule(epoch):
+    pass
+
+
 if __name__ == '__main__':
 
     ap = argparse.ArgumentParser()
@@ -124,11 +172,20 @@ if __name__ == '__main__':
             apply_batchnorm=config.model_settings.apply_batchnorm)
 
 
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-           initial_learning_rate=config.model_settings.initial_learning_rate,
-           decay_steps=config.model_settings.decay_steps,
-           decay_rate=config.model_settings.decay_rate,
-           staircase=config.model_settings.staircase)
+    if config.model_settings.custom_lr_schedule:
+        lr_schedule = CustomLRSchedule(
+               initial_learning_rate=config.model_settings.initial_learning_rate,
+               decay_steps=config.model_settings.decay_steps,
+               decay_rate=config.model_settings.decay_rate,
+               staircase=config.model_settings.staircase,
+               first_decay_step=config.model_settings.first_decay_step)
+
+    else:
+        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+               initial_learning_rate=config.model_settings.initial_learning_rate,
+               decay_steps=config.model_settings.decay_steps,
+               decay_rate=config.model_settings.decay_rate,
+               staircase=config.model_settings.staircase)
 
     optim = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
@@ -166,8 +223,17 @@ if __name__ == '__main__':
         os.mkdir(config.data_settings.model_save_directory)
 
 
-    shutil.copy2(args.config_file, os.path.join(config.data_settings.model_save_directory, 
-        os.path.basename(args.config_file)))
+    commit_sha = subprocess.check_output(["git", "rev-parse", "HEAD"]).strip()
+
+    config_out_path = os.path.join(config.data_settings.model_save_directory, 
+            os.path.basename(args.config_file))
+    shutil.copy2(args.config_file, config_out_path)
+
+    with open(config_out_path, 'a') as f:
+        string = "\ngit_settings:\n    commit_hash: {}".format(commit_sha)
+        print(string, file=f)
+
+
     model_out_path = os.path.join(config.data_settings.model_save_directory, 'model/'
             "/{epoch:03d}_{val_f1:.3f}")
     log_out_path = os.path.join(config.data_settings.model_save_directory,

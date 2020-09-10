@@ -144,8 +144,8 @@ def get_dataset(pattern, add_ndvi, n_classes):
     dataset = dataset.map(parse_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     to_tuple_fn = to_tuple(add_ndvi, n_classes)
     dataset = dataset.map(to_tuple_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
     return dataset
+
 
 def parse_tfrecord(example_proto):
     """the parsing function.
@@ -305,7 +305,7 @@ def make_balanced_training_dataset(root,
         weights.append(_assign_weight(class_name))
 
     dataset = tf.data.experimental.sample_from_datasets(datasets,
-            weights=weights).batch(batch_size).shuffle(buffer_size)
+            weights=weights).batch(batch_size)
     return dataset
 
 
