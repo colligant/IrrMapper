@@ -206,7 +206,7 @@ if __name__ == '__main__':
 
     validation = utils.make_validation_dataset(os.path.join(config.data_settings.data_root, 
         config.data_settings.test_path), 
-        batch_size=config.model_settings.batch_size, 
+        batch_size=2*config.model_settings.batch_size, 
         add_ndvi=config.data_settings.add_ndvi,
         year=config.data_settings.test_year,
         n_classes=config.model_settings.num_classes,

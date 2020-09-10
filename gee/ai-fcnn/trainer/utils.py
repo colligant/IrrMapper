@@ -263,7 +263,7 @@ def _assign_weight(name):
     if 'uncultivated' in name:
         return 0.7 / 3
     if 'fallow' in name:
-        return 0.165
+        return 0.05
 
 def make_validation_dataset(root, add_ndvi, batch_size, year,
         n_classes, buffer_size):

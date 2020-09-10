@@ -11,10 +11,10 @@ model_settings:
     weight_decay_const: 0.0001
     batch_size: 32
     num_classes: 3
-    training_steps_per_epoch: 1000 #500 # 1258 I know there are 13968 test tiles.
+    training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
     epochs: 1000
     f1_focus_on_class: 0
-    no_cuda: True
+    no_cuda: False
     print_model_summary: False
     train_verbosity: 2 # 0:silent, 1:progress bar, 2:one line per epoch
     custom_lr_schedule: True
@@ -23,8 +23,8 @@ data_settings:
     data_root: '/home/thomas/ssd/'
     train_path: 'train-data-sept5/'
     test_path: 'test-data-sept5/'
-    sample_weights_train: [0, 0, 0]
-    model_save_directory: '/home/thomas/models/all_datasept10/'
+    sample_weights_train: [0, 0, 0] # TODO: Implement this somehow (hah).
+    model_save_directory: '/home/thomas/models/all_data_sept10/'
     shuffle_buffer_size: 10
     add_ndvi: False
     train_year: null
