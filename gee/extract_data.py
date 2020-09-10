@@ -44,9 +44,10 @@ class GEEExtractor:
         self.data_stack = self.data_stack.reproject(self.projection, None, 30)
         self.image_stack = self.image_stack.reproject(self.projection, None, 30)
 
+
     def extract_data_over_patches(self, patch_shapefiles, buffer_region=None):
         '''
-        Extracts TFRecords over a ROI 
+        Extracts TFRecords over a ROI. ROIs are features in patch_shapefile.
         '''
         if isinstance(patch_shapefiles, list):
             for patch_shapefile in patch_shapefiles:
@@ -70,12 +71,14 @@ class GEEExtractor:
                 self._create_and_start_image_task(patch, out_filename)
 
 
-    def extract_data_over_shapefile(self, shapefile, percent=100):
+    def extract_data_over_shapefile(self, shapefile, percent=None, num=None,
+            shuffle=True):
         '''
-        Create the data stack on the constructor. This 
-        method samples the data stack over the features in 
-        the shapefile that is passed in. percent governs
-        the number of features chosen to extract over.
+        This method samples the data stack over the features in 
+        the shapefile that is passed in. Sampling consists
+        of choosing a random kernel_sizexkernel_size tile from
+        the interior of a feature in the shapefile that is passed in.
+        Percent governs the number of features chosen to extract over.
         '''
         try:
             feature_collection = self.shapefile_to_feature_collection[shapefile]
@@ -84,8 +87,24 @@ class GEEExtractor:
         feature_collection = feature_collection.toList(feature_collection.size())
         n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][self.year]
         out_filename = self._create_filename(shapefile)
-        n = int(n_features * percent / 100)
-        indices = [int(i) for i in np.random.choice(n_features, size=n, replace=False)]
+
+        if percent is not None:
+            n = int(n_features * percent / 100)
+            if shuffle:
+                indices = [int(i) for i in np.random.choice(n_features, size=n, replace=False)]
+            else:
+                indices = [int(i) for i in np.range(n)]
+        elif num is not None:
+            n = int(num)
+            assert( n <= n_features )
+            if shuffle:
+                indices = [int(i) for i in np.random.choice(n_features, size=n, replace=False)]
+            else:
+                indices = [int(i) for i in np.range(n)]
+        else:
+            print("Either percent or num features to extract needs to be specified")
+            exit(1)
+
         if len(indices):
             print('extracting data for {}, with {}/{} features chosen'.format(out_filename, n,
                 n_features))
@@ -170,20 +189,17 @@ if __name__ == '__main__':
     train_shapefiles = [train_root + s for s in train_shapefiles]
 
     
-    # done as of aug 24, 2020: 2008, 2015
-    all_year = [2003,2008,2009,2010,2011,2012,2013,2015]
-    years = [2003, 2009, 2010, 2011, 2012, 2013]
-    years = [2008, 2015]
+    years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
+
+    years = [2009, 2010, 2011, 2012, 2013]
     patches = 'users/tcolligan0/test-data-aug24/test_regions'
-    extract_test = True
-    extract_train = False
-
-
+    extract_test = False
+    extract_train = True
     if extract_test:
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='invest-sept2/', 
+                                     out_folder='test-data-sept5/',
                                      mask_shapefiles=test_shapefiles,
                                      n_shards=100)
             extractor.extract_data_over_patches(patches)
@@ -191,13 +207,13 @@ if __name__ == '__main__':
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='invest-sept2/', 
-                                     mask_shapefiles=test_shapefiles,
-                                     n_shards=100)
-            for shapefile in data_shapefiles:
+                                     out_folder='train-data-sept10/', 
+                                     mask_shapefiles=train_shapefiles,
+                                     n_shards=30)
+            for shapefile in train_shapefiles:
                 if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=40)
+                    extractor.extract_data_over_shapefile(shapefile, percent=10)
                 elif 'wetlands' in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=20)
+                    extractor.extract_data_over_shapefile(shapefile, percent=2)
                 else:
-                    extractor.extract_data_over_shapefile(shapefile, percent=20)
+                    extractor.extract_data_over_shapefile(shapefile, percent=2)
