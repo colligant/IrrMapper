@@ -1,7 +1,6 @@
 import numpy as np
 import yaml
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
 import tensorflow as tf
 import tensorflow.keras.backend as K
 import tensorflow.keras.callbacks as cbacks
@@ -24,9 +23,9 @@ class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
                        first_decay_step,
                        name=None):
 
-        self.initial_learning_rate = tf.convert_to_tensor(initial_learning_rate, dtype=tf.float32)
-        self.decay_steps = tf.convert_to_tensor(decay_steps, dtype=tf.float32)
-        self.decay_rate = tf.convert_to_tensor(decay_rate, dtype=tf.float32)
+        self.initial_learning_rate = initial_learning_rate
+        self.decay_steps = decay_steps
+        self.decay_rate = decay_rate
         self.first_decay_step = first_decay_step
         self.staircase = staircase
         self.name = name
@@ -40,12 +39,13 @@ class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
         if self.step_count > self.first_decay_step:
             return initial_learning_rate
 
-        p = step / self.decay_steps
+        p = tf.convert_to_tensor(step / self.decay_steps, tf.float32)
 
         if self.staircase:
             p = tf.math.floor(p)
 
-        return tf.math.multiply(self.initial_learning_rate, tf.math.pow(self.decay_rate, p))
+        return tf.math.multiply(tf.convert_to_tensor(self.initial_learning_rate, tf.float32),
+                tf.math.pow(tf.convert_to_tensor(self.decay_rate, tf.float32), p))
 
 
     def get_config(self):
@@ -154,6 +154,8 @@ if __name__ == '__main__':
     args = ap.parse_args()
     config = parse_yaml_config_file(args.config_file)
      
+    if not config.data_settings.show_tf_logs:
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
     if config.model_settings.no_cuda:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
     else:

@@ -30,3 +30,4 @@ data_settings:
     train_year: null
     test_year: null
     tb_update_freq: 'epoch'
+    show_tf_logs: True
