@@ -192,6 +192,7 @@ if __name__ == '__main__':
     years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
 
     years = [2009, 2010, 2011, 2012, 2013]
+
     patches = 'users/tcolligan0/test-data-aug24/test_regions'
     extract_test = False
     extract_train = True
