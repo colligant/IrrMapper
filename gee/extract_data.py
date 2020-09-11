@@ -7,8 +7,8 @@ import os
 import numpy as np
 from random import shuffle
 
-import ee_utils
-from shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
+import utils.ee_utils
+from utils.shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 
 class GEEExtractor:

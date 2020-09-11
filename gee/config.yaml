@@ -14,7 +14,7 @@ model_settings:
     training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
     epochs: 1000
     f1_focus_on_class: 0
-    no_cuda: False
+    no_cuda: True
     print_model_summary: False
     train_verbosity: 2 # 0:silent, 1:progress bar, 2:one line per epoch
     custom_lr_schedule: True

@@ -10,8 +10,8 @@ import shutil
 import subprocess
 from types import SimpleNamespace
 
-from . import utils
-from . import models
+import utils.utils as utils
+import models.models as models
 
 
 class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -149,8 +149,8 @@ def lr_schedule(epoch):
 if __name__ == '__main__':
 
     ap = argparse.ArgumentParser()
-    ap.add_argument('--job-dir', help='required arg for gcloud')
-    ap.add_argument('--config-file', help='YAML config file for hparams')
+    ap.add_argument('--config-file', help='YAML config file for hparams',
+            required=True)
     args = ap.parse_args()
     config = parse_yaml_config_file(args.config_file)
      
