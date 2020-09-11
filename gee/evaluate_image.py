@@ -1,18 +1,17 @@
 import os
-# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 import tensorflow as tf
-import gc
-tf.compat.v1.logging.set_verbosity(tf.compat.v1.logging.FATAL)
 import numpy as np
+import rasterio
+
 from pdb import set_trace
 from glob import glob
 from sys import stdout, exit
-from rasterio import open as rasopen
-import rasterio
 from tensorflow.keras.models import load_model
 from models import unet
-from random import shuffle
+from argparse import ArgumentParser
+
 import feature_spec
+
 
 def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filename, out_meta,
         n_classes, tile_size=24):
@@ -41,14 +40,12 @@ def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filen
 if __name__ == '__main__':
 
 
-    base = './models/'
-    model_path = './gs-models/0.7711/'
+    model_path = '/home/thomas/models/allyearsrun/model/103_0.876/'
     loaded = tf.saved_model.load(model_path)
     model = loaded.signatures["serving_default"]
-    # model = tf.keras.models.load_model('./my_model.h5')
-    n_classes = 5
+    n_classes = 3
     
-    out_directory = '/home/thomas/ssd/evaluated/0.7711july28/'
+    out_directory = '/home/thomas/ssd/evaluated/allyearsrun_103_0.876/'
 
     if not os.path.isdir(out_directory):
         os.makedirs(out_directory, exist_ok=True)
