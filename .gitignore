@@ -107,7 +107,7 @@ ENV/
 /.idea
 
 fully-conv-classification/**/
-gee/**/
+#gee/**/
 gee/vae/**
 !gee/ai-fcnn/
 *.out
