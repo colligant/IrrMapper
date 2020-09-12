@@ -7,10 +7,10 @@ from pdb import set_trace
 from glob import glob
 from sys import stdout, exit
 from tensorflow.keras.models import load_model
-from models import unet
 from argparse import ArgumentParser
 
-import feature_spec
+import utils.feature_spec as feature_spec
+from models.models import unet
 
 
 def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filename, out_meta,
@@ -33,32 +33,51 @@ def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filen
 
     predictions = predictions.transpose((2, 0, 1))
     out_meta.update({'count':n_classes, 'dtype':np.float64})
-    with rasopen(out_filename, "w", **out_meta) as dst:
+    with rasterio.open(out_filename, "w", **out_meta) as dst:
         dst.write(predictions)
 
 
 if __name__ == '__main__':
 
+    ap = ArgumentParser()
 
-    model_path = '/home/thomas/models/allyearsrun/model/103_0.876/'
+    ap.add_argument('--model-path', required=True)
+    ap.add_argument('--data-directory', required=True)
+    ap.add_argument('--out-directory', required=True)
+    ap.add_argument('--n-classes', type=int)
+    ap.add_argument('--use-cuda', action='store_true')
+    ap.add_argument('--show-logs', action='store_true')
+
+    args = ap.parse_args()
+
+    if not args.show_logs:
+        os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+    if not args.use_cuda:
+        os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+
+
+    model_path = args.model_path
     loaded = tf.saved_model.load(model_path)
     model = loaded.signatures["serving_default"]
-    n_classes = 3
+    n_classes = args.n_classes
     
-    out_directory = '/home/thomas/ssd/evaluated/allyearsrun_103_0.876/'
+    out_directory = args.out_directory
 
     if not os.path.isdir(out_directory):
         os.makedirs(out_directory, exist_ok=True)
 
-    files = glob("/home/thomas/ssd/image-data/landsat578/*tif")
+    files = glob(os.path.join(args.data_directory, "*tif"))
 
     for f in files:
+
         out_filename = 'test{}.tif'.format(os.path.splitext(os.path.basename(f))[0])
         out_filename = os.path.join(out_directory, out_filename)
+
         if not os.path.isfile(out_filename):
-            print(out_filename)
+            print('Saving image to:', out_filename)
             try:
-                with rasopen(f, 'r') as src:
+                with rasterio.open(f, 'r') as src:
                     image_stack = src.read()
                     target_meta = src.meta
                     descriptions = src.descriptions
@@ -66,13 +85,21 @@ if __name__ == '__main__':
             except rasterio.errors.RasterioIOError as e:
                 print(e)
                 continue
-            features = set(feature_spec.bands())
+            features = set(feature_spec.features())
+
             descriptions = np.asarray(descriptions)[indices]
+
             final_indices = []
+
             for d, idx in zip(descriptions, indices):
                 if d in features:
                     final_indices.append(idx)
+
             image_stack = image_stack[np.asarray(final_indices)] * 0.0001
             image_stack[np.isnan(image_stack)] = 0
-            iterate_over_image_and_evaluate_patchwise(image_stack, model,
-                     out_filename, target_meta, n_classes=n_classes, tile_size=608)
+            iterate_over_image_and_evaluate_patchwise(image_stack,
+                    model,
+                    out_filename,
+                    target_meta,
+                    n_classes=n_classes,
+                    tile_size=608)
