@@ -7,7 +7,7 @@ import os
 import numpy as np
 from random import shuffle
 
-import utils.ee_utils
+import utils.ee_utils as ee_utils
 from utils.shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 
@@ -17,6 +17,7 @@ class GEEExtractor:
             n_shards=10):
 
         self.year = year
+        self.iter = 0
         self.out_folder = out_folder
         self.out_gs_bucket = out_gs_bucket
         self.n_shards = n_shards
@@ -33,7 +34,7 @@ class GEEExtractor:
         self.shapefile_to_feature_collection = \
                 ee_utils.temporally_filter_features(self.mask_shapefiles, self.year)
         class_labels = ee_utils.create_class_labels(self.shapefile_to_feature_collection)
-        self.image_stack = ee.Image.cat([image_stack, class_labels]).float()
+        self.image_stack = ee.Image.cat([image_stack, class_labels]).int16()
 
         list_ = ee.List.repeat(1, self.kernel_size)
         lists = ee.List.repeat(list_, self.kernel_size)
@@ -130,17 +131,20 @@ class GEEExtractor:
 
 
     def _create_and_start_image_task(self, patch, out_filename):
+        county_name = patch.get('NAME').getInfo()
+        self.iter += 1 
         task = ee.batch.Export.image.toCloudStorage(
                 image=self.image_stack,
                 bucket=self.out_gs_bucket,
                 description=out_filename + str(time.time()),
-                fileNamePrefix=os.path.join(self.out_folder, out_filename + str(time.time())),
-                fileFormat='TFRecord',
+                fileNamePrefix=os.path.join(self.out_folder, str(self.iter) + "_" + str(self.year)),
+                fileFormat='GeoTIFF',
+                crs='EPSG:5070',
                 region=patch.geometry(),
                 scale=30,
-                formatOptions={'patchDimensions':256,
-                               'compressed':True,
-                               'maskedThreshold':0.99},
+                # formatOptions={'patchDimensions':256,
+                #                'compressed':True,
+                #                'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
 
@@ -194,8 +198,23 @@ if __name__ == '__main__':
     years = [2009, 2010, 2011, 2012, 2013]
 
     patches = 'users/tcolligan0/test-data-aug24/test_regions'
+    counties = 'users/tcolligan0/County'
     extract_test = False
     extract_train = True
+    
+    # need to finish 2010
+    for year in range(2011, 2020):
+        print('extracting for', year)
+        extractor = GEEExtractor(year, 
+                                 out_gs_bucket=gs_bucket, 
+                                 out_folder='mt_counties_past_2011',
+                                 mask_shapefiles=test_shapefiles + train_shapefiles,
+                                 n_shards=100)
+        extractor.extract_data_over_patches(counties)
+
+    '''
+
+
     if extract_test:
         for year in years:
             extractor = GEEExtractor(year, 
@@ -218,3 +237,4 @@ if __name__ == '__main__':
                     extractor.extract_data_over_shapefile(shapefile, percent=2)
                 else:
                     extractor.extract_data_over_shapefile(shapefile, percent=2)
+    '''

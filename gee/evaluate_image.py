@@ -44,7 +44,7 @@ if __name__ == '__main__':
     ap.add_argument('--model-path', required=True)
     ap.add_argument('--data-directory', required=True)
     ap.add_argument('--out-directory', required=True)
-    ap.add_argument('--n-classes', type=int)
+    ap.add_argument('--n-classes', type=int, required=True)
     ap.add_argument('--use-cuda', action='store_true')
     ap.add_argument('--show-logs', action='store_true')
 
@@ -95,6 +95,7 @@ if __name__ == '__main__':
                 if d in features:
                     final_indices.append(idx)
 
+            image_stack = image_stack.astype(np.float32)
             image_stack = image_stack[np.asarray(final_indices)] * 0.0001
             image_stack[np.isnan(image_stack)] = 0
             iterate_over_image_and_evaluate_patchwise(image_stack,

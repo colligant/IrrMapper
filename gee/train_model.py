@@ -195,6 +195,7 @@ if __name__ == '__main__':
 
     if config.model_settings.print_model_summary:
         print(model.summary())
+        exit()
 
     train = utils.make_balanced_training_dataset(os.path.join(config.data_settings.data_root,
         config.data_settings.train_path), 

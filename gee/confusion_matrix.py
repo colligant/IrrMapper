@@ -2,7 +2,9 @@ import os
 import tensorflow as tf
 
 from argparse import ArgumentParser
-import utils 
+
+import utils.utils as utils
+
 
 def numpyfy(dct):
 
@@ -16,11 +18,10 @@ if __name__ == '__main__':
 
     ap = ArgumentParser()
 
-    ap.add_argument('--job-dir')
-    ap.add_argument('--data-directory')
-    ap.add_argument('--model-directory')
+    ap.add_argument('--data-directory', required=True)
+    ap.add_argument('--model-directory', required=True)
     ap.add_argument('--batch-size', type=int, default=16)
-    ap.add_argument('--n-classes', type=int)
+    ap.add_argument('--n-classes', type=int, default=3)
     ap.add_argument('--use-cuda', action='store_true')
     ap.add_argument('--show-logs', action='store_true')
     ap.add_argument('--year', default=None, type=str)

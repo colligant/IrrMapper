@@ -5,7 +5,7 @@ from glob import glob
 from collections import defaultdict
 from pprint import pprint
 
-from shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
+from utils.shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
 YEARS = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
 
@@ -66,7 +66,7 @@ def preprocess_data(year):
 
     l8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR').select(LC8_BANDS, STD_NAMES)
     l7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR').select(LC7_BANDS, STD_NAMES)
-    l5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR').select(LC7_BANDS, STD_NAMES)
+    l5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR').select(LC5_BANDS, STD_NAMES)
     l5l7l8 = ee.ImageCollection(l7.merge(l8).merge(l5))
 
     return temporalCollection(l5l7l8, ee.Date('{}-05-01'.format(year)), 6, 32, 'days')
@@ -76,13 +76,13 @@ def temporalCollection(collection, start, count, interval, units):
  
   sequence = ee.List.sequence(0, ee.Number(count).subtract(1))
   originalStartDate = ee.Date(start)
-  def filt(i):
-    
-    startDate = originalStartDate.advance(ee.Number(interval).multiply(i), units)
 
+  def filt(i):
+    startDate = originalStartDate.advance(ee.Number(interval).multiply(i), units)
     endDate = originalStartDate.advance(
         ee.Number(interval).multiply(ee.Number(i).add(1)), units)
     return collection.filterDate(startDate, endDate).reduce(ee.Reducer.mean())
+
   return ee.ImageCollection(sequence.map(filt))
 
 
@@ -98,7 +98,7 @@ def assign_class_code(shapefile_path):
       return 2
   if 'uncultivated' in shapefile_path:
       return 2
-  if 'data_test_block' in shapefile_path:
+  if 'Count' in shapefile_path:
       # annoying workaround for earthengine
       return 10
   else:
