@@ -14,27 +14,41 @@ from models.models import unet
 
 
 def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filename, out_meta,
-        n_classes, tile_size=24):
+        n_classes, tile_size):
 
-    image_stack = tf.transpose(image_stack, [1, 2, 0])
-    image_stack = tf.convert_to_tensor(np.expand_dims(image_stack, 0))
+    # want to iterate in chunks of 232x232 over the image.
+
+    pad_width  = tile_size - image_stack.shape[2] % tile_size
+    pad_height = tile_size - image_stack.shape[1] % tile_size
+    tmp = np.zeros((image_stack.shape[0], image_stack.shape[1]+pad_height,
+        image_stack.shape[2]+pad_width))
+    tmp[:, :-pad_height, :-pad_width] = image_stack
+    image_stack = tmp
+    image_stack = np.transpose(image_stack, [1, 2, 0])
+    image_stack = np.expand_dims(image_stack, 0).astype(np.float32)
+
+    chunk_size = 232
+    diff = tile_size - chunk_size
 
     predictions = np.zeros((image_stack.shape[1], image_stack.shape[2], n_classes))
-    for ofs in range(1):
-        for i in range(ofs, image_stack.shape[1]-tile_size, tile_size):
-            for j in range(ofs, image_stack.shape[2]-tile_size, tile_size):
-                image_tile = image_stack[:, i:i+tile_size, j:j+tile_size, :]
-                if np.all(image_tile == 0):
-                    continue
-                preds = np.squeeze(model(image_tile)['softmax'])
-                predictions[i:i+tile_size, j:j+tile_size, :] += preds
-            stdout.write("{:.3f}\r".format(i/image_stack.shape[1]))
-
-
+    for i in range(tile_size//2, image_stack.shape[1]-chunk_size, chunk_size):
+        for j in range(tile_size//2, image_stack.shape[2]-chunk_size, chunk_size):
+            image_tile = tf.convert_to_tensor(image_stack[:, i-tile_size//2:i+tile_size//2,
+                j-tile_size//2:j+tile_size//2, :])
+            if np.all(image_tile == 0):
+                continue
+            preds = np.squeeze(model(image_tile)['softmax'])
+            print(preds.shape, i, j)
+            preds = preds[diff//2:-diff//2, diff//2:-diff//2, :]
+            print(preds.shape, i, j)
+            predictions[i:i+chunk_size, j:j+chunk_size, :] += preds
     predictions = predictions.transpose((2, 0, 1))
-    out_meta.update({'count':n_classes, 'dtype':np.float64})
+    predictions = predictions[:, :-pad_height, :-pad_width]
+    predictions = np.round(predictions*255).astype(np.uint8)
+    out_meta.update({'count':n_classes, 'dtype':np.uint8})
     with rasterio.open(out_filename, "w", **out_meta) as dst:
         dst.write(predictions)
+    exit()
 
 
 if __name__ == '__main__':
@@ -42,7 +56,9 @@ if __name__ == '__main__':
     ap = ArgumentParser()
 
     ap.add_argument('--model-path', required=True)
-    ap.add_argument('--data-directory', required=True)
+    ap.add_argument('--data-directory', type=str)
+    ap.add_argument('--image-file', type=str)
+    ap.add_argument('--year', type=str)
     ap.add_argument('--out-directory', required=True)
     ap.add_argument('--n-classes', type=int, required=True)
     ap.add_argument('--use-cuda', action='store_true')
@@ -56,9 +72,16 @@ if __name__ == '__main__':
     if not args.use_cuda:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
+    if args.data_directory is not None:
+        files = glob(os.path.join(args.data_directory, "*tif"))
+        if args.year is not None:
+            files = [f for f in files if str(args.year) in f]
+    elif args.image_file is not None:
+        files = [args.image_file]
+    else:
+        raise ValueError('Either data directory or image file must be provided')
 
-    model_path = args.model_path
-    loaded = tf.saved_model.load(model_path)
+    loaded = tf.saved_model.load(args.model_path)
     model = loaded.signatures["serving_default"]
     n_classes = args.n_classes
     
@@ -67,11 +90,10 @@ if __name__ == '__main__':
     if not os.path.isdir(out_directory):
         os.makedirs(out_directory, exist_ok=True)
 
-    files = glob(os.path.join(args.data_directory, "*tif"))
 
     for f in files:
 
-        out_filename = 'test{}.tif'.format(os.path.splitext(os.path.basename(f))[0])
+        out_filename = 'irr{}.tif'.format(os.path.splitext(os.path.basename(f))[0])
         out_filename = os.path.join(out_directory, out_filename)
 
         if not os.path.isfile(out_filename):
@@ -98,9 +120,10 @@ if __name__ == '__main__':
             image_stack = image_stack.astype(np.float32)
             image_stack = image_stack[np.asarray(final_indices)] * 0.0001
             image_stack[np.isnan(image_stack)] = 0
+
             iterate_over_image_and_evaluate_patchwise(image_stack,
                     model,
                     out_filename,
                     target_meta,
                     n_classes=n_classes,
-                    tile_size=608)
+                    tile_size=256)
