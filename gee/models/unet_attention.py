@@ -56,7 +56,6 @@ class ConvBlock(tf.keras.layers.Layer):
 
         super(ConvBlock, self).__init__()
         self.apply_batchnorm = apply_batchnorm
-        print(filters, apply_batchnorm, weight_decay_const)
         self.c1 = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
                 kernel_regularizer=l2(weight_decay_const))
         self.c2 = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
@@ -109,7 +108,7 @@ class UnetDownsample(tf.keras.layers.Layer):
 
 
 def unet_attention(input_shape, initial_filters, timesteps, n_classes, 
-        weight_decay_const, apply_batchnorm, batch_size):
+        weight_decay_const, apply_batchnorm):
 
     i1 = Input(input_shape)
     i2 = Input(input_shape)
@@ -197,11 +196,10 @@ if __name__ == '__main__':
                            timesteps=6,
                            n_classes=3,
                            weight_decay_const=0.0001,
-                           apply_batchnorm=True,
-                           batch_size=None)
+                           apply_batchnorm=True)
     tensors = []
     timesteps = 6
     for _ in range(timesteps):
         tensors.append(tf.random.normal((16, 256, 256, 6)))
-    print(model.predict(tensors))
+    # print(model.predict(tensors))
     # print(model.summary(line_length=150))

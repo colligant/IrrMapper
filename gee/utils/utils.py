@@ -98,7 +98,7 @@ def confusion_matrix_from_generator(datasets, batch_size, model, n_classes):
     return out_cmat, recall_dict, precision_dict, instance_count
 
 
-def get_shared_dataset(pattern, add_ndvi):
+def get_shared_dataset(pattern, add_ndvi, n_classes):
     """Function to read, parse and format to tuple a set of input tfrecord files.
     Get all the files matching the pattern, parse and convert to tuple.
     Args:
@@ -110,13 +110,18 @@ def get_shared_dataset(pattern, add_ndvi):
       A tf.data.Dataset
     """
     if not isinstance(pattern, list):
-        pattern = tf.io.gfile.glob(pattern)
-    shuffle(pattern)
-    dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
-            num_parallel_reads=tf.data.experimental.AUTOTUNE)
+        files = tf.io.gfile.glob(pattern)
+        shuffle(files)
+        dataset = tf.data.TFRecordDataset(files, compression_type='GZIP',
+                num_parallel_reads=tf.data.experimental.AUTOTUNE)
+    else:
+        shuffle(pattern)
+        dataset = tf.data.TFRecordDataset(pattern, compression_type='GZIP',
+                num_parallel_reads=tf.data.experimental.AUTOTUNE)
+
     dataset = dataset.map(parse_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    to_tup = to_shared_tuple(add_ndvi)
-    dataset = dataset.map(to_tup, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    to_tuple_fn = to_shared_tuple(add_ndvi, n_classes)
+    dataset = dataset.map(to_tuple_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     return dataset
 
 
@@ -158,7 +163,8 @@ def parse_tfrecord(example_proto):
     """
     return tf.io.parse_single_example(example_proto, features_dict)
 
-def to_shared_tuple(add_ndvi):
+
+def to_shared_tuple(add_ndvi, n_classes):
     """
     Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
@@ -173,10 +179,10 @@ def to_shared_tuple(add_ndvi):
         # Convert from CHW to HWC
         stacked = tf.transpose(stacked, [1, 2, 0]) * 0.0001
         out = []
-        for i in range(6, stacked.shape[-1], 6):
+        for i in range(6, stacked.shape[-1]+6, 6):
             out.append(stacked[:, :, i-6:i])
         # 'constant' is the label for label raster. 
-        labels = one_hot(inputs.get('constant'), n_classes=3)
+        labels = one_hot(inputs.get('constant'), n_classes=n_classes)
         return (out[0], out[1], out[2], out[3], out[4], out[5]), labels
 
     return _to_tuple
@@ -266,18 +272,27 @@ def _assign_weight(name):
     if 'fallow' in name:
         return 0.05
 
-def make_validation_dataset(root, add_ndvi, batch_size, year,
-        n_classes, buffer_size):
+def make_validation_dataset(root,
+        add_ndvi, 
+        batch_size,
+        year,
+        n_classes,
+        buffer_size,
+        temporal_unet):
+
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
-
     if year is not None:
-        print(len(files))
+        print('Length of train files before removing year {}: {}'.format(year, len(files)))
         files = [f for f in files if year in f]
-        print(len(files))
+        print('Length of train files after removing year {}: {}'.format(year, len(files)))
 
-    datasets = get_dataset(files, add_ndvi, n_classes).shuffle(buffer_size).batch(batch_size)
+    if temporal_unet:
+        datasets = get_shared_dataset(files, add_ndvi, n_classes)
+    else:
+        datasets = get_dataset(files, add_ndvi, n_classes)
+    datasets = datasets.shuffle(buffer_size).batch(batch_size).shuffle(buffer_size)
     return datasets
 
 def make_balanced_training_dataset(root,
@@ -286,22 +301,27 @@ def make_balanced_training_dataset(root,
         sample_weights, 
         year,
         buffer_size, 
-        n_classes):
+        n_classes,
+        temporal_unet):
 
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
 
     if year is not None:
-        print(len(files))
+        print('Length of train files before removing year {}: {}'.format(year, len(files)))
         files = [f for f in files if year in f]
-        print(len(files))
+        print('Length of train files after removing year {}: {}'.format(year, len(files)))
 
     files = filter_list_into_classes(files) 
     
     weights = []
     for class_name, file_list in files.items():
-        dataset = get_dataset(file_list, add_ndvi, n_classes)
+        if temporal_unet:
+            dataset = get_shared_dataset(file_list, add_ndvi, n_classes)
+        else:
+            dataset = get_dataset(file_list, add_ndvi, n_classes)
+
         datasets.append(dataset.shuffle(buffer_size).repeat())
         weights.append(_assign_weight(class_name))
 

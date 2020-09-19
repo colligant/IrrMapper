@@ -11,7 +11,8 @@ import subprocess
 from types import SimpleNamespace
 
 import utils.utils as utils
-import models.models as models
+import models.unet as unet
+import models.unet_attention as unet_attention
 
 
 class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
@@ -167,11 +168,20 @@ if __name__ == '__main__':
     sf1 = StreamingF1Score(num_classes=config.model_settings.num_classes,
             focus_on_class=config.model_settings.f1_focus_on_class)
 
-    model = models.unet((None, None, config.model_settings.unet_input_channels), 
-            n_classes=config.model_settings.num_classes,
-            initial_exp=config.model_settings.unet_initial_exp,
-            weight_decay_const=config.model_settings.weight_decay_const,
-            apply_batchnorm=config.model_settings.apply_batchnorm)
+    if config.model_settings.temporal_unet:
+        model = unet_attention.unet_attention(input_shape=(256, 256, 6), 
+                initial_filters=32,
+                timesteps=6,
+                n_classes=config.model_settings.num_classes,
+                weight_decay_const=config.model_settings.weight_decay_const,
+                apply_batchnorm=config.model_settings.apply_batchnorm
+                )
+    else:
+        model = unet.unet((None, None, config.model_settings.unet_input_channels), 
+                n_classes=config.model_settings.num_classes,
+                initial_exp=config.model_settings.unet_initial_exp,
+                weight_decay_const=config.model_settings.weight_decay_const,
+                apply_batchnorm=config.model_settings.apply_batchnorm)
 
 
     if config.model_settings.custom_lr_schedule:
@@ -195,7 +205,6 @@ if __name__ == '__main__':
 
     if config.model_settings.print_model_summary:
         print(model.summary())
-        exit()
 
     train = utils.make_balanced_training_dataset(os.path.join(config.data_settings.data_root,
         config.data_settings.train_path), 
@@ -204,7 +213,8 @@ if __name__ == '__main__':
         sample_weights=config.data_settings.sample_weights_train,
         year=config.data_settings.train_year,
         buffer_size=config.data_settings.shuffle_buffer_size,
-        n_classes=config.model_settings.num_classes
+        n_classes=config.model_settings.num_classes,
+        temporal_unet=config.model_settings.temporal_unet
         )
 
     validation = utils.make_validation_dataset(os.path.join(config.data_settings.data_root, 
@@ -213,7 +223,8 @@ if __name__ == '__main__':
         add_ndvi=config.data_settings.add_ndvi,
         year=config.data_settings.test_year,
         n_classes=config.model_settings.num_classes,
-        buffer_size=config.data_settings.shuffle_buffer_size
+        buffer_size=config.data_settings.shuffle_buffer_size,
+        temporal_unet=config.model_settings.temporal_unet
         )
 
     if os.path.isdir(config.data_settings.model_save_directory):
@@ -258,7 +269,7 @@ if __name__ == '__main__':
               epochs=config.model_settings.epochs,
               validation_data=validation,
               callbacks=[chpt, tb, nanloss],
-              verbose=2)
+              verbose=config.model_settings.train_verbosity)
 
 
     fully_trained_model_path = os.path.join(log_out_path, "{}_epochs".format(config.EPOCHS))
