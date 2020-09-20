@@ -44,7 +44,7 @@ class TemporalAttention(tf.keras.layers.Layer):
         queries = self.concat(queries)
         values = self.concat(values)
         Q = self.in_reshape(queries)
-        V = self.in_reshape(queries)
+        V = self.in_reshape(values)
         QKT = self.softmax_attention(tf.matmul(Q, tf.transpose(Q, [0, 2, 1])) / self.dk)
         attention = tf.matmul(QKT, V)
         attention = self.out_reshape(attention)
