@@ -142,10 +142,6 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
     # TODO: Right now I have a really severe bottleneck layer!
     # I need to a). add residual connections (hmm, maybe not, b/c the other unet doesn't
     # use resid. connections.
-    # and b) incorporate the information from all of the convolutional embedding layers.
-    # There are 3 that I don't use for the output right now, so I'll
-    # concatentate all of the shared embeddings depthwise and then use a 1x1 conv to 
-    # reduce dimensionality.
 
     concatentated = []
     for i in range(timesteps-3):
