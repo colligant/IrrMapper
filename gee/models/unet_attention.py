@@ -18,6 +18,7 @@ def convblock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
         x = BatchNormalization()(x)
     return Activation('relu')(x)
 
+
 class TemporalAttention(tf.keras.layers.Layer):
     '''
     Temporal attention for embedded representations
@@ -84,7 +85,7 @@ class UnetDownsample(tf.keras.layers.Layer):
         self.cb2 = ConvBlock(filters*2, weight_decay_const, apply_batchnorm)
         self.cb3 = ConvBlock(filters*4, weight_decay_const, apply_batchnorm)
         self.cb4 = ConvBlock(filters*8, weight_decay_const, apply_batchnorm)
-        self.cb5 = ConvBlock(filters*8, weight_decay_const, apply_batchnorm)
+        self.cb5 = ConvBlock(filters*16, weight_decay_const, apply_batchnorm)
     
         self.max_pool = MaxPooling2D(pool_size=2, strides=2)
 
@@ -124,8 +125,12 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
     for inp in inputs:
         embeddings.append(downsampler(inp))
 
-    temp_attn_1 = TemporalAttention(timesteps, (None, 32, 32, 1), weight_decay_const)
-    temp_attn_2 = TemporalAttention(timesteps, (None, 16, 16, 2), weight_decay_const)
+    filters_temp_attn_1 = 6
+    filters_temp_attn_2 = 12
+    temp_attn_1 = TemporalAttention(timesteps, (None, 32, 32, filters_temp_attn_1), 
+            weight_decay_const)
+    temp_attn_2 = TemporalAttention(timesteps, (None, 16, 16, filters_temp_attn_2),
+            weight_decay_const)
 
     attn1_inputs = []
     attn2_inputs = []
@@ -134,13 +139,37 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
         attn1_inputs.append(e[-2])
         attn2_inputs.append(e[-1])
 
-    query_embed_1 = Conv2D(filters=1, kernel_size=1, strides=1, padding='same',
-            kernel_regularizer=l2(weight_decay_const)) # aggressive compression...
-    value_embed_1 = Conv2D(filters=1, kernel_size=1, strides=1, padding='same',
-            kernel_regularizer=l2(weight_decay_const)) # aggressive compression...
-    value_embed_2 = Conv2D(filters=2, kernel_size=1, strides=1, padding='same',
+    # TODO: Right now I have a really severe bottleneck layer!
+    # I need to a). add residual connections (hmm, maybe not, b/c the other unet doesn't
+    # use resid. connections.
+    # and b) incorporate the information from all of the convolutional embedding layers.
+    # There are 3 that I don't use for the output right now, so I'll
+    # concatentate all of the shared embeddings depthwise and then use a 1x1 conv to 
+    # reduce dimensionality.
+
+    concatentated = []
+    for i in range(timesteps-3):
+        ls = []
+        for j in range(timesteps):
+            ls.append(embeddings[j][i])
+        concatentated.append(Concatenate()(ls))
+
+    dim_red_1 = Conv2D(filters=64, kernel_size=1, strides=1, padding='same',
+            kernel_regularizer=l2(weight_decay_const))(concatentated[0]) # 256x256x64
+
+    dim_red_2 = Conv2D(filters=64, kernel_size=1, strides=1, padding='same',
+            kernel_regularizer=l2(weight_decay_const))(concatentated[1]) # 128x128x64
+
+    dim_red_3 = Conv2D(filters=64, kernel_size=1, strides=1, padding='same',
+            kernel_regularizer=l2(weight_decay_const))(concatentated[2]) # 64x64x64
+
+    query_embed_1 = Conv2D(filters=filters_temp_attn_1, kernel_size=1, strides=1, padding='same',
             kernel_regularizer=l2(weight_decay_const)) 
-    query_embed_2 = Conv2D(filters=2, kernel_size=1, strides=1, padding='same',
+    value_embed_1 = Conv2D(filters=filters_temp_attn_1, kernel_size=1, strides=1, padding='same',
+            kernel_regularizer=l2(weight_decay_const))
+    query_embed_2 = Conv2D(filters=filters_temp_attn_2, kernel_size=1, strides=1, padding='same',
+            kernel_regularizer=l2(weight_decay_const)) 
+    value_embed_2 = Conv2D(filters=filters_temp_attn_2, kernel_size=1, strides=1, padding='same',
             kernel_regularizer=l2(weight_decay_const)) 
 
     query1 = []
@@ -154,21 +183,30 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
         value1.append(Activation('relu')(value_embed_1(a1)))
         value2.append(Activation('relu')(value_embed_2(a2)))
 
-    attention1 = temp_attn_1(query1, value1)
-    attention2 = temp_attn_2(query2, value2)
+    attention1 = temp_attn_1(query1, value1) # 32x32
+    attention2 = temp_attn_2(query2, value2) # 16x16
 
-    attention2 = convblock(attention2, initial_filters*8, weight_decay_const, apply_batchnorm)
-    up1 = UpSampling2D(size=(2, 2))(attention2)
+    attention2 = convblock(attention2, initial_filters*16, weight_decay_const, apply_batchnorm)
+    up1 = UpSampling2D(size=(2, 2))(attention2) # 32x32
 
-    attention1 = convblock(attention1, initial_filters*8, weight_decay_const, apply_batchnorm)
-    concat1 = Concatenate()([up1, attention1])
+    attention1 = convblock(attention1, initial_filters*16, weight_decay_const, apply_batchnorm)
+    concat1 = Concatenate()([up1, attention1]) # 32x32
 
-    x = convblock(concat1, initial_filters*4, weight_decay_const, apply_batchnorm)
-    x = UpSampling2D(size=(2, 2))(x)
+    x = convblock(concat1, initial_filters*8, weight_decay_const, apply_batchnorm)
+
+    x = UpSampling2D(size=(2, 2))(x) # 64x64
+    x = convblock(x, initial_filters*4, weight_decay_const, apply_batchnorm)
+    x = Concatenate()([x, dim_red_3])
+    x = convblock(x, initial_filters*4, weight_decay_const, apply_batchnorm)
+
+    x = UpSampling2D(size=(2, 2))(x) # 128x128
     x = convblock(x, initial_filters*2, weight_decay_const, apply_batchnorm)
+    x = Concatenate()([x, dim_red_2])
+    x = convblock(x, initial_filters*2, weight_decay_const, apply_batchnorm)
+
     x = UpSampling2D(size=(2, 2))(x)
     x = convblock(x, initial_filters, weight_decay_const, apply_batchnorm)
-    x = UpSampling2D(size=(2, 2))(x)
+    x = Concatenate()([x, dim_red_1])
     x = convblock(x, initial_filters, weight_decay_const, apply_batchnorm)
     softmax = Conv2D(n_classes, kernel_size=1, strides=1,
                         activation='softmax',
@@ -197,9 +235,9 @@ if __name__ == '__main__':
                            n_classes=3,
                            weight_decay_const=0.0001,
                            apply_batchnorm=True)
-    tensors = []
-    timesteps = 6
-    for _ in range(timesteps):
-        tensors.append(tf.random.normal((16, 256, 256, 6)))
+    # tensors = []
+    # timesteps = 6
+    # for _ in range(timesteps):
+    #     tensors.append(tf.random.normal((16, 256, 256, 6)))
     # print(model.predict(tensors))
     # print(model.summary(line_length=150))
