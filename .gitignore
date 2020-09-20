@@ -106,6 +106,13 @@ ENV/
 .idea/*
 /.idea
 
+# qgis projections
+*.qgz
+# csv, json
+*.csv
+*.json
+
+# custom bs
 fully-conv-classification/**/
 #gee/**/
 gee/vae/**

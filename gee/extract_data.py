@@ -10,7 +10,6 @@ from random import shuffle
 import utils.ee_utils as ee_utils
 from utils.shapefile_spec import shape_to_year_and_count as SHP_TO_YEAR_AND_COUNT
 
-
 class GEEExtractor:
 
     def __init__(self, year, out_gs_bucket, out_folder, mask_shapefiles, kernel_size=256,
@@ -59,7 +58,7 @@ class GEEExtractor:
                     patch = ee.Feature(patches.get(idx))
                     if buffer_region is not None:
                         patch = patch.buffer(buffer_region)
-                    self._create_and_start_image_task(patch, out_filename)
+                    self._create_and_start_image_task(patch, out_filename, idx)
         else:
             patches = ee.FeatureCollection(patch_shapefiles)
             patches = patches.toList(patches.size())
@@ -69,7 +68,7 @@ class GEEExtractor:
                 if buffer_region is not None:
                     patch = patch.buffer(buffer_region)
                     patch = ee.Feature(patch.bounds())
-                self._create_and_start_image_task(patch, out_filename)
+                self._create_and_start_image_task(patch, out_filename, idx)
 
 
     def extract_data_over_shapefile(self, shapefile, percent=None, num=None,
@@ -124,37 +123,37 @@ class GEEExtractor:
             geometry_sample = geometry_sample.merge(sample)
             if (feature_count+1) % self.n_shards == 0:
                 geometry_sample = self._create_and_start_table_task(geometry_sample,
-                        out_filename)
+                        out_filename, idx)
             feature_count += 1
         # take care of leftovers
-        self._create_and_start_table_task(geometry_sample, out_filename)
+        self._create_and_start_table_task(geometry_sample, out_filename, idx)
 
 
-    def _create_and_start_image_task(self, patch, out_filename):
-        county_name = patch.get('NAME').getInfo()
+    def _create_and_start_image_task(self, patch, out_filename, idx):
         self.iter += 1 
         task = ee.batch.Export.image.toCloudStorage(
                 image=self.image_stack,
                 bucket=self.out_gs_bucket,
                 description=out_filename + str(time.time()),
-                fileNamePrefix=os.path.join(self.out_folder, str(self.iter) + "_" + str(self.year)),
-                fileFormat='GeoTIFF',
+                fileNamePrefix=os.path.join(self.out_folder, str(idx) + \
+                        str(self.iter) + "_" + str(self.year)),
+                fileFormat='TFRecord',
                 crs='EPSG:5070',
                 region=patch.geometry(),
                 scale=30,
-                # formatOptions={'patchDimensions':256,
-                #                'compressed':True,
-                #                'maskedThreshold':0.99},
+                formatOptions={'patchDimensions':256,
+                               'compressed':True,
+                               'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
 
     
-    def _create_and_start_table_task(self, geometry_sample, out_filename):
+    def _create_and_start_table_task(self, geometry_sample, out_filename, idx):
         task = ee.batch.Export.table.toCloudStorage(
                 collection=geometry_sample,
                 description=out_filename + str(time.time()),
                 bucket=self.out_gs_bucket,
-                fileNamePrefix=self.out_folder + out_filename + str(time.time()),
+                fileNamePrefix=self.out_folder + str(idx) + out_filename + str(time.time()),
                 fileFormat='TFRecord',
                 selectors=self.features
                 )
@@ -203,11 +202,11 @@ if __name__ == '__main__':
     extract_train = True
     
     # need to finish 2010
-    for year in range(2011, 2020):
+    for year in [2001]:
         print('extracting for', year)
         extractor = GEEExtractor(year, 
                                  out_gs_bucket=gs_bucket, 
-                                 out_folder='mt_counties_past_2011',
+                                 out_folder='mt_counties2001/',
                                  mask_shapefiles=test_shapefiles + train_shapefiles,
                                  n_shards=100)
         extractor.extract_data_over_patches(counties)

@@ -157,7 +157,7 @@ if __name__ == '__main__':
      
     if not config.data_settings.show_tf_logs:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
-    if config.model_settings.no_cuda:
+    if not config.model_settings.use_cuda:
         os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
     else:
         if not len(tf.config.list_physical_devices("GPU")):
@@ -170,7 +170,7 @@ if __name__ == '__main__':
 
     if config.model_settings.temporal_unet:
         model = unet_attention.unet_attention(input_shape=(256, 256, 6), 
-                initial_filters=32,
+                initial_filters=16,
                 timesteps=6,
                 n_classes=config.model_settings.num_classes,
                 weight_decay_const=config.model_settings.weight_decay_const,

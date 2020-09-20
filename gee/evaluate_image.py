@@ -16,8 +16,6 @@ from models.models import unet
 def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filename, out_meta,
         n_classes, tile_size):
 
-    # want to iterate in chunks of 232x232 over the image.
-
     pad_width  = tile_size - image_stack.shape[2] % tile_size
     pad_height = tile_size - image_stack.shape[1] % tile_size
     tmp = np.zeros((image_stack.shape[0], image_stack.shape[1]+pad_height,
@@ -27,28 +25,24 @@ def iterate_over_image_and_evaluate_patchwise(image_stack, model_path, out_filen
     image_stack = np.transpose(image_stack, [1, 2, 0])
     image_stack = np.expand_dims(image_stack, 0).astype(np.float32)
 
-    chunk_size = 232
-    diff = tile_size - chunk_size
-
     predictions = np.zeros((image_stack.shape[1], image_stack.shape[2], n_classes))
-    for i in range(tile_size//2, image_stack.shape[1]-chunk_size, chunk_size):
-        for j in range(tile_size//2, image_stack.shape[2]-chunk_size, chunk_size):
-            image_tile = tf.convert_to_tensor(image_stack[:, i-tile_size//2:i+tile_size//2,
-                j-tile_size//2:j+tile_size//2, :])
-            if np.all(image_tile == 0):
-                continue
-            preds = np.squeeze(model(image_tile)['softmax'])
-            print(preds.shape, i, j)
-            preds = preds[diff//2:-diff//2, diff//2:-diff//2, :]
-            print(preds.shape, i, j)
-            predictions[i:i+chunk_size, j:j+chunk_size, :] += preds
+    for k in range(10):
+        for i in range(k, image_stack.shape[1]-tile_size, tile_size):
+            for j in range(k, image_stack.shape[2]-tile_size, tile_size):
+                image_tile = tf.convert_to_tensor(image_stack[:, i:i+tile_size, j:j+tile_size, :])
+                if np.all(image_tile == 0):
+                    continue
+                preds = np.squeeze(model(image_tile)['softmax'])
+                predictions[i:i+tile_size, j:j+tile_size, :] += preds
+            stdout.write("{:.3f}\r".format(i/image_stack.shape[1]))
+
+
     predictions = predictions.transpose((2, 0, 1))
-    predictions = predictions[:, :-pad_height, :-pad_width]
+    predictions = predictions[:, :-pad_height, :-pad_width] / 10
     predictions = np.round(predictions*255).astype(np.uint8)
     out_meta.update({'count':n_classes, 'dtype':np.uint8})
     with rasterio.open(out_filename, "w", **out_meta) as dst:
         dst.write(predictions)
-    exit()
 
 
 if __name__ == '__main__':
@@ -62,6 +56,7 @@ if __name__ == '__main__':
     ap.add_argument('--out-directory', required=True)
     ap.add_argument('--n-classes', type=int, required=True)
     ap.add_argument('--use-cuda', action='store_true')
+    ap.add_argument('--tile-size', type=int, default=256)
     ap.add_argument('--show-logs', action='store_true')
 
     args = ap.parse_args()
@@ -97,16 +92,16 @@ if __name__ == '__main__':
         out_filename = os.path.join(out_directory, out_filename)
 
         if not os.path.isfile(out_filename):
-            print('Saving image to:', out_filename)
             try:
                 with rasterio.open(f, 'r') as src:
                     image_stack = src.read()
                     target_meta = src.meta
                     descriptions = src.descriptions
                     indices = np.argsort(descriptions)
-            except rasterio.errors.RasterioIOError as e:
-                print(e)
+            except (rasterio.errors.RasterioIOError, AttributeError, TypeError) as e:
+                print(f)
                 continue
+
             features = set(feature_spec.features())
 
             descriptions = np.asarray(descriptions)[indices]
@@ -120,10 +115,9 @@ if __name__ == '__main__':
             image_stack = image_stack.astype(np.float32)
             image_stack = image_stack[np.asarray(final_indices)] * 0.0001
             image_stack[np.isnan(image_stack)] = 0
-
             iterate_over_image_and_evaluate_patchwise(image_stack,
                     model,
                     out_filename,
                     target_meta,
                     n_classes=n_classes,
-                    tile_size=256)
+                    tile_size=args.tile_size)
