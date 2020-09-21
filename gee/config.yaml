@@ -11,14 +11,16 @@ model_settings:
     weight_decay_const: 0.0001
     batch_size: 4
     num_classes: 3
-    training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
+    training_steps_per_epoch: 2000 # 1258 I know there are 13968 test tiles.
     epochs: 1000
     f1_focus_on_class: 0
     use_cuda: True
-    print_model_summary: True
+    print_model_summary: False
     train_verbosity: 1 # 0:silent, 1:progress bar, 2:one line per epoch
     custom_lr_schedule: False
     temporal_unet: True
+    temporal_unet_initial_filters: 16
+    timesteps: 6
 
 data_settings:
     data_root: '/home/thomas/ssd/'

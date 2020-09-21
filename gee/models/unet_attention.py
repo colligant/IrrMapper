@@ -6,6 +6,8 @@ from tensorflow.keras.layers import *
 from tensorflow.keras.regularizers import l2
 from tensorflow.keras.activations import relu
 
+TOKEN_SELF_ATTN_VALUE = 5e-4
+
 def convblock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
@@ -18,6 +20,10 @@ def convblock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
         x = BatchNormalization()(x)
     return Activation('relu')(x)
 
+def make_unit_length(x, epsilon=1e-6):
+    norm = tf.norm(x,  ord=2, axis=-1, keepdims=True)
+    return tf.math.truediv(x, norm + epsilon)
+
 
 class TemporalAttention(tf.keras.layers.Layer):
     '''
@@ -27,26 +33,53 @@ class TemporalAttention(tf.keras.layers.Layer):
 
     def __init__(self, timesteps, input_shape, weight_decay_const):
         super(TemporalAttention, self).__init__()
+        self.timesteps = timesteps
         self.concat = Concatenate()
         self.b, self.inp_h, self.inp_w, self.inp_d = input_shape
-        self.dk = tf.math.sqrt(tf.cast(self.inp_h * self.inp_w * self.inp_d, tf.float32))
+
+        self.dk = tf.convert_to_tensor(self.inp_h * self.inp_w * self.inp_d, tf.int32)
+        self.sdk = tf.math.sqrt(tf.cast(self.dk, tf.float32))
+
         self.in_reshape = Reshape((self.inp_d*self.inp_h*self.inp_w, timesteps))
         self.out_reshape = Reshape((self.inp_h, self.inp_w, self.inp_d*timesteps))
+
         self.softmax_attention = Softmax()
-        self.activation = Activation('relu')
+
 
     def __call__(self, queries, values):
         '''
         inputs: tuple of embedded 2D representations
         n x n x filters
-        Uses shared QK attention.
+        Uses shared QK attention, from Reformer (2020).
+        QK attention requires that k_j = q_j / ||q_j||,
+        and that tokens don't attend to themselves.
+        (A dot product of a vector with a normalized version of  itself
+         will be greater than the dot of it with all others, meaning
+         ...attend to self?).
         '''
+
         queries = self.concat(queries)
         values = self.concat(values)
-        Q = self.in_reshape(queries)
-        V = self.in_reshape(values)
-        QKT = self.softmax_attention(tf.matmul(Q, tf.transpose(Q, [0, 2, 1])) / self.dk)
-        attention = tf.matmul(QKT, V)
+        q = self.in_reshape(queries)
+        v = self.in_reshape(values)
+
+        qk = make_unit_length(q)
+        qkt = self.softmax_attention(tf.matmul(q, tf.transpose(qk, [0, 2, 1])) / self.sdk)
+        # mask out diagonal for non-self attention. We don't
+        # have to worry about the part "except where no
+        # other context is available", because we're not decoding a sequence,
+        # just using this temporal attention layer to incorporate time information
+        # into a n-channel semantic segmentation mask.
+        # masking out the diagonal is a more complex task in tensorflow.
+        # I want: qkt[:, range(dk), range(dk)] = TOKEN_SELF_ATTN_VALUE,
+        # but for some reason tf tensors don't support arbitrary indexing with
+        qkt = tf.where(qkt == tf.transpose(qkt, [0, 2, 1]),
+                tf.zeros_like(qkt)+TOKEN_SELF_ATTN_VALUE, qkt) 
+        # ok, a sloppy solution. The diagonal of a matrix will be the same
+        # even if it's tranposed. So that's what I do: ask where the transpose
+        # is equal to the original matrix, then replace those values with
+        # the masked value, and the rest of the values I don't touch.
+        attention = tf.matmul(qkt, v)
         attention = self.out_reshape(attention)
         return attention
 
@@ -179,8 +212,8 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
         value1.append(Activation('relu')(value_embed_1(a1)))
         value2.append(Activation('relu')(value_embed_2(a2)))
 
-    attention1 = temp_attn_1(query1, value1) # 32x32
-    attention2 = temp_attn_2(query2, value2) # 16x16
+    attention1, bs1 = temp_attn_1(query1, value1) # 32x32
+    attention2, _ = temp_attn_2(query2, value2) # 16x16
 
     attention2 = convblock(attention2, initial_filters*16, weight_decay_const, apply_batchnorm)
     up1 = UpSampling2D(size=(2, 2))(attention2) # 32x32
@@ -207,7 +240,7 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
     softmax = Conv2D(n_classes, kernel_size=1, strides=1,
                         activation='softmax',
                         kernel_regularizer=l2(weight_decay_const))(x)
-    return Model(inputs=[i1, i2, i3, i4, i5, i6], outputs=softmax)
+    return Model(inputs=[i1, i2, i3, i4, i5, i6], outputs=[softmax, bs1])
 
 
 
@@ -234,6 +267,6 @@ if __name__ == '__main__':
     # tensors = []
     # timesteps = 6
     # for _ in range(timesteps):
-    #     tensors.append(tf.random.normal((16, 256, 256, 6)))
+    #     tensors.append(tf.random.normal((4, 256, 256, 6)))
     # print(model.predict(tensors))
-    # print(model.summary(line_length=150))
+    print(model.summary(line_length=150))

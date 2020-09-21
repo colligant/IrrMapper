@@ -105,5 +105,3 @@ if __name__ == '__main__':
 
     df = pd.from_dict(county_to_year_and_area)
     df.to_csv('mt_irrsept20.csv')
-
-

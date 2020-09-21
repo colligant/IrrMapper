@@ -170,8 +170,8 @@ if __name__ == '__main__':
 
     if config.model_settings.temporal_unet:
         model = unet_attention.unet_attention(input_shape=(256, 256, 6), 
-                initial_filters=16,
-                timesteps=6,
+                initial_filters=config.model_settings.temporal_unet_intial_filters,
+                timesteps=config.model_settings.timesteps,
                 n_classes=config.model_settings.num_classes,
                 weight_decay_const=config.model_settings.weight_decay_const,
                 apply_batchnorm=config.model_settings.apply_batchnorm
