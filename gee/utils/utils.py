@@ -284,9 +284,9 @@ def make_validation_dataset(root,
     training_root = os.path.join(root, pattern)
     files = tf.io.gfile.glob(training_root)
     if year is not None:
-        print('Length of train files before removing year {}: {}'.format(year, len(files)))
+        print('Length of validation files before removing year {}: {}'.format(year, len(files)))
         files = [f for f in files if year in f]
-        print('Length of train files after removing year {}: {}'.format(year, len(files)))
+        print('Length of validation files after removing year {}: {}'.format(year, len(files)))
 
     if temporal_unet:
         datasets = get_shared_dataset(files, add_ndvi, n_classes)
