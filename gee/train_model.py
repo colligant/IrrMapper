@@ -15,51 +15,6 @@ import models.unet as unet
 import models.unet_attention as unet_attention
 
 
-class CustomLRSchedule(tf.keras.optimizers.schedules.LearningRateSchedule):
-
-    def __init__(self, initial_learning_rate,
-                       decay_steps, 
-                       decay_rate,
-                       staircase,
-                       first_decay_step,
-                       name=None):
-
-        self.initial_learning_rate = initial_learning_rate
-        self.decay_steps = decay_steps
-        self.decay_rate = decay_rate
-        self.first_decay_step = first_decay_step
-        self.staircase = staircase
-        self.name = name
-        self.step_count = 0
-
-
-    def __call__(self, step):
-
-        self.step_count += 1
-
-        if self.step_count > self.first_decay_step:
-            return initial_learning_rate
-
-        p = tf.convert_to_tensor(step / self.decay_steps, tf.float32)
-
-        if self.staircase:
-            p = tf.math.floor(p)
-
-        return tf.math.multiply(tf.convert_to_tensor(self.initial_learning_rate, tf.float32),
-                tf.math.pow(tf.convert_to_tensor(self.decay_rate, tf.float32), p))
-
-
-    def get_config(self):
-        return {
-                "initial_learning_rate": self.initial_learning_rate,
-                "decay_steps": self.decay_steps,
-                "decay_rate": self.decay_rate,
-                "staircase": self.staircase,
-                "first_decay_step": self.first_decay_step,
-                "name": self.name
-            }
-
-
 def m_acc(y_true, y_pred):
     y_true_sum = tf.reduce_sum(y_true, axis=-1)
     mask = tf.not_equal(y_true_sum, 0)
@@ -170,7 +125,7 @@ if __name__ == '__main__':
 
     if config.model_settings.temporal_unet:
         model = unet_attention.unet_attention(input_shape=(256, 256, 6), 
-                initial_filters=config.model_settings.temporal_unet_intial_filters,
+                initial_filters=config.model_settings.temporal_unet_initial_filters,
                 timesteps=config.model_settings.timesteps,
                 n_classes=config.model_settings.num_classes,
                 weight_decay_const=config.model_settings.weight_decay_const,
