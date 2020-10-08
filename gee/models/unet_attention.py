@@ -8,6 +8,7 @@ from tensorflow.keras.activations import relu
 
 TOKEN_SELF_ATTN_VALUE = 5e-4
 
+
 def convblock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
@@ -19,6 +20,7 @@ def convblock(x, filters, weight_decay_const, apply_batchnorm, padding='same'):
     if apply_batchnorm:
         x = BatchNormalization()(x)
     return Activation('relu')(x)
+
 
 def make_unit_length(x, epsilon=1e-6):
     norm = tf.norm(x,  ord=2, axis=-1, keepdims=True)
@@ -107,6 +109,7 @@ class ConvBlock(tf.keras.layers.Layer):
         if self.apply_batchnorm:
             x = self.bn2(x)
         return self.activation(x)
+
 
 class UnetDownsample(tf.keras.layers.Layer):
 
@@ -212,8 +215,8 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
         value1.append(Activation('relu')(value_embed_1(a1)))
         value2.append(Activation('relu')(value_embed_2(a2)))
 
-    attention1, bs1 = temp_attn_1(query1, value1) # 32x32
-    attention2, _ = temp_attn_2(query2, value2) # 16x16
+    attention1 = temp_attn_1(query1, value1) # 32x32
+    attention2 = temp_attn_2(query2, value2) # 16x16
 
     attention2 = convblock(attention2, initial_filters*16, weight_decay_const, apply_batchnorm)
     up1 = UpSampling2D(size=(2, 2))(attention2) # 32x32
@@ -240,7 +243,8 @@ def unet_attention(input_shape, initial_filters, timesteps, n_classes,
     softmax = Conv2D(n_classes, kernel_size=1, strides=1,
                         activation='softmax',
                         kernel_regularizer=l2(weight_decay_const))(x)
-    return Model(inputs=[i1, i2, i3, i4, i5, i6], outputs=[softmax, bs1])
+
+    return Model(inputs=[i1, i2, i3, i4, i5, i6], outputs=[softmax])
 
 
 

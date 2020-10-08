@@ -139,20 +139,11 @@ if __name__ == '__main__':
                 apply_batchnorm=config.model_settings.apply_batchnorm)
 
 
-    if config.model_settings.custom_lr_schedule:
-        lr_schedule = CustomLRSchedule(
-               initial_learning_rate=config.model_settings.initial_learning_rate,
-               decay_steps=config.model_settings.decay_steps,
-               decay_rate=config.model_settings.decay_rate,
-               staircase=config.model_settings.staircase,
-               first_decay_step=config.model_settings.first_decay_step)
-
-    else:
-        lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-               initial_learning_rate=config.model_settings.initial_learning_rate,
-               decay_steps=config.model_settings.decay_steps,
-               decay_rate=config.model_settings.decay_rate,
-               staircase=config.model_settings.staircase)
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+           initial_learning_rate=config.model_settings.initial_learning_rate,
+           decay_steps=config.model_settings.decay_steps,
+           decay_rate=config.model_settings.decay_rate,
+           staircase=config.model_settings.staircase)
 
     optim = tf.keras.optimizers.Adam(learning_rate=lr_schedule)
 
@@ -169,8 +160,8 @@ if __name__ == '__main__':
         year=config.data_settings.train_year,
         buffer_size=config.data_settings.shuffle_buffer_size,
         n_classes=config.model_settings.num_classes,
-        temporal_unet=config.model_settings.temporal_unet
-        )
+        temporal_unet=config.model_settings.temporal_unet,
+        border_labels=config.model_settings.border_labels)
 
     validation = utils.make_validation_dataset(os.path.join(config.data_settings.data_root, 
         config.data_settings.test_path), 
@@ -179,8 +170,8 @@ if __name__ == '__main__':
         year=config.data_settings.test_year,
         n_classes=config.model_settings.num_classes,
         buffer_size=config.data_settings.shuffle_buffer_size,
-        temporal_unet=config.model_settings.temporal_unet
-        )
+        temporal_unet=config.model_settings.temporal_unet,
+        border_labels=config.model_settings.border_labels)
 
     if os.path.isdir(config.data_settings.model_save_directory):
         model_save_directory = os.path.normpath(config.data_settings.model_save_directory) 
@@ -209,7 +200,7 @@ if __name__ == '__main__':
             'logs/')
 
     chpt = cbacks.ModelCheckpoint(model_out_path, 
-                                  save_best_only=True, 
+                                  save_best_only=False, 
                                   verbose=True, 
                                   monitor='val_f1',
                                   mode='max') 

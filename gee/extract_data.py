@@ -45,7 +45,8 @@ class GEEExtractor:
         self.image_stack = self.image_stack.reproject(self.projection, None, 30)
 
 
-    def extract_data_over_patches(self, patch_shapefiles, buffer_region=None):
+    def extract_data_over_patches(self, patch_shapefiles, target_patch_name=None,
+            buffer_region=None):
         '''
         Extracts TFRecords over a ROI. ROIs are features in patch_shapefile.
         '''
@@ -68,7 +69,7 @@ class GEEExtractor:
                 if buffer_region is not None:
                     patch = patch.buffer(buffer_region)
                     patch = ee.Feature(patch.bounds())
-                self._create_and_start_image_task(patch, out_filename, idx)
+                self._create_and_start_image_task(patch, out_filename, idx, target_patch_name)
 
 
     def extract_data_over_shapefile(self, shapefile, percent=None, num=None,
@@ -129,21 +130,24 @@ class GEEExtractor:
         self._create_and_start_table_task(geometry_sample, out_filename, idx)
 
 
-    def _create_and_start_image_task(self, patch, out_filename, idx):
-        self.iter += 1 
+    def _create_and_start_image_task(self, patch, out_filename, idx, target_patch_name):
+
+        if target_patch_name is not None:
+            if patch.get('NAME').getInfo() not in set(target_patch_name):
+                return
+
         task = ee.batch.Export.image.toCloudStorage(
                 image=self.image_stack,
                 bucket=self.out_gs_bucket,
-                description=out_filename + str(time.time()),
-                fileNamePrefix=os.path.join(self.out_folder, str(idx) + \
-                        str(self.iter) + "_" + str(self.year)),
-                fileFormat='TFRecord',
+                description=out_filename,
+                fileNamePrefix=os.path.join(self.out_folder, out_filename + "_" + str(self.year)),
+                fileFormat='GeoTIFF',
                 crs='EPSG:5070',
                 region=patch.geometry(),
                 scale=30,
-                formatOptions={'patchDimensions':256,
-                               'compressed':True,
-                               'maskedThreshold':0.99},
+                # formatOptions={'patchDimensions':256,
+                #                'compressed':True,
+                #                'maskedThreshold':0.99},
                 )
         self._start_task_and_handle_exception(task)
 
@@ -191,6 +195,17 @@ if __name__ == '__main__':
                         'wetlands_buffered_train', 'fallow_train']
     train_shapefiles = [train_root + s for s in train_shapefiles]
 
+    year = 2013
+    extractor = GEEExtractor(year, 
+                             out_gs_bucket=gs_bucket, 
+                             out_folder='single_patch',
+                             mask_shapefiles=test_shapefiles + train_shapefiles,
+                             n_shards=100)
+    patch = 'users/tcolligan0/extract_block'
+    extractor.extract_data_over_patches(patch, target_patch_name=None)
+    exit()
+
+
     
     years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
 
@@ -201,15 +216,37 @@ if __name__ == '__main__':
     extract_test = False
     extract_train = True
     
-    # need to finish 2010
-    for year in [2001]:
+    leftovers = {
+            2000:['park'],
+            2001:['park'],
+            2002:['falcon', 'wibeaux'],
+            2003:['park'],
+            2004:['teton'],
+            2005:['park'],
+            2006:['sanders'],
+            2007:['pondera'],
+            2008:['gallatin'],
+            2009:['park'],
+            2010:['cascade'],
+            2011:['park'],
+            2012:['golden valley'],
+            2013:['park'],
+            2014:['choteau'],
+            2015:['broadwater'],
+            2016:['carbon'],
+            2017:['park'],
+            2019:['park']
+            }
+
+    for year in leftovers.keys():
         print('extracting for', year)
         extractor = GEEExtractor(year, 
                                  out_gs_bucket=gs_bucket, 
-                                 out_folder='mt_counties2001/',
+                                 out_folder='leftovers_sept24/',
                                  mask_shapefiles=test_shapefiles + train_shapefiles,
                                  n_shards=100)
-        extractor.extract_data_over_patches(counties)
+        extractor.extract_data_over_patches(counties, 
+                target_patch_name=[n.upper() for n in leftovers[year]])
 
     '''
 

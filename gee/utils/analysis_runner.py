@@ -1,21 +1,28 @@
 import os
 import analysis_utils as au
 from glob import glob
+import pandas as pd
+import geopandas as gpd
+from collections import defaultdict
+
 
 osb = os.path.basename
- 
+osj = os.path.join
+oss = os.path.splitext
+
 if __name__ == '__main__':
-    # root = '/home/thomas/irrigated-training-data-aug21/aux-shapefiles/'
-    # shapefile = root + 'MontanaCounties_shp/County.shp'
 
-    # rasters = glob('/home/thomas/montana_data/montana-image-data-2016-and-on/*tif')
-    # rasters += glob('/home/thomas/ssd/montana-image-data/*tif')
-    # out_directory = '/home/thomas/montana_data/montana-image-data-2016-and-on/'
-    # au.check_for_missing_rasters(rasters, shapefile)
 
-    rasters = glob('/home/thomas/mt/montana-irr-rasters/rasters_by_county/*tif')
-    years =[str(y) for y in range(2000, 2020) ]
-    for year in years: 
-        yearly_rasters = [r for r in rasters if year in r]
-        out = '/home/thomas/mt/montana-irr-rasters/rasters/irrMT_{}.tif'.format(year)
-        au.merge_rasters_gdal(yearly_rasters, year)
+    fname = '/home/thomas/mt/statistics/irrigated_acreage_flu_sept28.csv'
+    shapefiles = glob('/home/thomas/flu-data/*irrigated_area*.shp')
+    dct = defaultdict(dict)
+    for f in glob("/home/thomas/ssd/rasters_clipped_to_counties/*tif"):
+        ff = oss(osb(f))[0]
+        year = ff[-4:]
+        name = ff[:-5]
+        dct[name][year] = au.calc_irr_area(f)
+
+    df = pd.DataFrame.from_dict(dct)
+    df = df.sort_index()
+    df = df.sort_index(axis=1)
+    df.to_csv('/home/thomas/mt/statistics/irrigated_acreage_cnn_sept28.csv')

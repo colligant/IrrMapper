@@ -1,5 +1,5 @@
 import os
-import tensorflow as tf
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 from argparse import ArgumentParser
 
@@ -35,6 +35,8 @@ if __name__ == '__main__':
     if not args.show_logs:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
+    import tensorflow as tf
+
     model_path = args.model_directory
     model = args.data_directory
 
@@ -46,8 +48,10 @@ if __name__ == '__main__':
                                             batch_size=args.batch_size,
                                             year=args.year, 
                                             n_classes=args.n_classes,
-                                            buffer_size=1)
+                                            buffer_size=1,
+                                            temporal_unet=False)
 
+    # 2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015
     if not isinstance(dataset, list):
         dataset = [dataset]
 

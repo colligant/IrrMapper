@@ -95,6 +95,7 @@ if __name__ == '__main__':
         out_filename = os.path.join(out_directory, out_filename)
 
         if not os.path.isfile(out_filename):
+            print(out_filename)
             try:
                 with rasterio.open(f, 'r') as src:
                     image_stack = src.read()
@@ -127,3 +128,6 @@ if __name__ == '__main__':
                     n_classes=n_classes,
                     tile_size=args.tile_size,
                     chunk_size=args.chunk_size)
+
+        else:
+            print('file', f, 'already predicted, residing in', out_filename)

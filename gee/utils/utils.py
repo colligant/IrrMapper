@@ -5,6 +5,8 @@ import tensorflow as tf
 import tensorflow
 from collections import defaultdict
 from random import shuffle
+from scipy.ndimage.morphology import distance_transform_edt
+
 
 from . import feature_spec
 
@@ -36,7 +38,7 @@ def one_hot(labels, n_classes):
 
 
 def one_hot_border_labels(labels, n_classes):
-    h, w, d = labels.shape
+    h, w = labels.shape
     labels = tf.squeeze(labels)
     ls = []
     border_labels = None
@@ -125,7 +127,7 @@ def get_shared_dataset(pattern, add_ndvi, n_classes):
     return dataset
 
 
-def get_dataset(pattern, add_ndvi, n_classes):
+def get_dataset(pattern, add_ndvi, n_classes, border_labels):
     """Function to read, parse and format to tuple a set of input tfrecord files.
     Get all the files matching the pattern, parse and convert to tuple.
     Args:
@@ -148,7 +150,7 @@ def get_dataset(pattern, add_ndvi, n_classes):
                 num_parallel_reads=tf.data.experimental.AUTOTUNE)
 
     dataset = dataset.map(parse_tfrecord, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    to_tuple_fn = to_tuple(add_ndvi, n_classes)
+    to_tuple_fn = to_tuple(add_ndvi, n_classes, border_labels)
     dataset = dataset.map(to_tuple_fn, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     return dataset
 
@@ -187,7 +189,7 @@ def to_shared_tuple(add_ndvi, n_classes):
 
     return _to_tuple
 
-def to_tuple(add_ndvi, n_classes):
+def to_tuple(add_ndvi, n_classes, border_labels):
     """
     Function to convert a dictionary of tensors to a tuple of (inputs, outputs).
     Turn the tensors returned by parse_tfrecord into a stack in HWC shape.  
@@ -205,7 +207,10 @@ def to_tuple(add_ndvi, n_classes):
         else:
             image_stack = stacked
         # 'constant' is the label for label raster. 
-        labels = one_hot(inputs.get('constant'), n_classes=n_classes)
+        if border_labels:
+            labels = one_hot_border_labels(inputs.get('constant'), n_classes=n_classes)
+        else:
+            labels = one_hot(inputs.get('constant'), n_classes=n_classes)
         return image_stack, labels
 
     return _to_tuple
@@ -278,7 +283,8 @@ def make_validation_dataset(root,
         year,
         n_classes,
         buffer_size,
-        temporal_unet):
+        temporal_unet,
+        border_labels):
 
     pattern = "*gz"
     training_root = os.path.join(root, pattern)
@@ -291,7 +297,7 @@ def make_validation_dataset(root,
     if temporal_unet:
         datasets = get_shared_dataset(files, add_ndvi, n_classes)
     else:
-        datasets = get_dataset(files, add_ndvi, n_classes)
+        datasets = get_dataset(files, add_ndvi, n_classes, border_labels)
     datasets = datasets.shuffle(buffer_size).batch(batch_size).shuffle(buffer_size)
     return datasets
 
@@ -302,7 +308,8 @@ def make_balanced_training_dataset(root,
         year,
         buffer_size, 
         n_classes,
-        temporal_unet):
+        temporal_unet,
+        border_labels):
 
     pattern = "*gz"
     datasets = []
@@ -320,7 +327,7 @@ def make_balanced_training_dataset(root,
         if temporal_unet:
             dataset = get_shared_dataset(file_list, add_ndvi, n_classes)
         else:
-            dataset = get_dataset(file_list, add_ndvi, n_classes)
+            dataset = get_dataset(file_list, add_ndvi, n_classes, border_labels)
 
         datasets.append(dataset.shuffle(buffer_size).repeat())
         weights.append(_assign_weight(class_name))
@@ -331,4 +338,20 @@ def make_balanced_training_dataset(root,
 
 
 if __name__ == '__main__':
-    pass
+
+    dset = make_validation_dataset('/home/thomas/ssd/train-data-sept5/', False, 1, None, 3, 1, False)
+    
+    min_pixels = np.inf
+    all_px = []
+    for f, l in dset:
+        n = np.count_nonzero(l)
+        all_px.append(n)
+        if n < min_pixels:
+            min_pixels = n
+
+    print(np.mean(all_px))
+    print(min_pixels)
+
+
+
+
