@@ -1,0 +1,36 @@
+model_settings:
+    unet_initial_exp: 5
+    unet_input_channels: 36
+    apply_batchnorm: True
+    objective: 'categorical_crossentropy'
+    initial_learning_rate: 0.001
+    first_decay_step: 40000
+    decay_steps: 25000
+    decay_rate: 0.6
+    staircase: True
+    weight_decay_const: 0.0001
+    batch_size: 25
+    num_classes: 3
+    training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
+    epochs: 1000
+    f1_focus_on_class: 0
+    no_cuda: False
+    print_model_summary: True
+    train_verbosity: 2 # 0:silent, 1:progress bar, 2:one line per epoch
+    custom_lr_schedule: False
+
+data_settings:
+    data_root: '/home/thomas/ssd/'
+    train_path: 'train-data-sept5/'
+    test_path: 'test-data-sept5/'
+    sample_weights_train: [0, 0, 0] # TODO: Implement this somehow (hah).
+    model_save_directory: '/home/thomas/models/all_data_sept10/'
+    shuffle_buffer_size: 10
+    add_ndvi: False
+    train_year: null
+    test_year: null
+    tb_update_freq: 'epoch'
+    show_tf_logs: True
+
+git_settings:
+    commit_hash: b'242144823962b6163b789664676f76ae9f3692ea'

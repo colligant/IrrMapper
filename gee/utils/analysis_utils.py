@@ -200,7 +200,7 @@ def get_irrigated_statistics(rasters_by_county, csv_out):
         ss = os.path.splitext((os.path.basename(raster)))[0]
         year = ss[-4:]
         name = ss[:-5]
-        county_to_year_and_acres[name][year] = au.calc_irr_area(raster)
+        county_to_year_and_acres[name][year] = calc_irr_area(raster)
         print(i)
 
     irr = pd.DataFrame.from_dict(county_to_year_and_acres)
@@ -328,7 +328,12 @@ def precip_timeseries():
     plt.show()
 
 if __name__ == '__main__':
+    r1 = '/tmp/irrsingle_patch_extract_block2013_2013.tif'
+    r2 = '../irrsingle_patch_extract_block2013_2013.tif'
+    a = (calc_irr_area(r1))
+    b = (calc_irr_area(r2))
 
+    '''
     # crop_proportions_over_time('./crop_proportions.json')
     alf = pd.read_csv('/home/thomas/mt/statistics/unirrigated_alfalfa.csv')
     unirr = pd.read_csv('/home/thomas/mt/statistics/irrigated_alfalfa.csv')
@@ -361,3 +366,4 @@ if __name__ == '__main__':
     ax1.grid(None)
     plt.xlabel('year')
     plt.show()
+    '''

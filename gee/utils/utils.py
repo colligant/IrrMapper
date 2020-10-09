@@ -50,12 +50,13 @@ def one_hot_border_labels(labels, n_classes):
             border_labels = tf.where(border_labels != i+1, tf.zeros((h, w)), tf.ones((h,w)))
         elif i == 2 and border_labels is not None:
             where = tf.where(labels != i+1, tf.zeros((h, w)), tf.ones((h,w)))
-            where = tf.where(border_labels == 1, 10*tf.ones((h, w)), where)
+            where = tf.where(border_labels == 1, tf.ones((h, w)), where)
         else:
             where = tf.where(labels != i+1, tf.zeros((h, w)), tf.ones((h,w)))
         ls.append(where)
     temp = tf.stack(ls, axis=-1)
     return temp
+
 
 def mask_unlabeled_values(y_true, y_pred):
     '''
@@ -243,7 +244,7 @@ def add_ndvi_raster(image_stack):
         # change the non-missing data, and will make sure missing data
         # is still 0 when it's fed into the model.
         ndvi = (image_stack[:,:, nir_idx] - image_stack[:,:, red_idx]) /\
-                (image_stack[:,:, nir_idx] + image_stack[:,:, red_idx] + 1e-8) 
+                (image_stack[:,:, nir_idx] + image_stack[:,:, red_idx] + 1e-6) 
         out.append(ndvi)
     return tf.concat((image_stack, tf.stack(out, axis=-1)), axis=-1)
 

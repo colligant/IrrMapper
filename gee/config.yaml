@@ -8,7 +8,7 @@ model_settings:
     decay_rate: 0.6
     staircase: True
     weight_decay_const: 0.0001
-    batch_size: 16
+    batch_size: 25
     num_classes: 3
     training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
     epochs: 1000
@@ -19,16 +19,16 @@ model_settings:
     temporal_unet: False
     temporal_unet_initial_filters: 16
     timesteps: 6
-    border_labels: True
+    border_labels: False
 
 data_settings:
     data_root: '/home/thomas/ssd/'
     train_path: 'train-data-sept5/'
     test_path: 'test-data-sept5/'
     sample_weights_train: [0, 0, 0] # TODO: Implement this somehow (hah).
-    model_save_directory: '/home/thomas/models/border_labels/'
+    model_save_directory: '/home/thomas/models/save_all_models'
     shuffle_buffer_size: 10
-    add_ndvi: False
+    add_ndvi: True
     train_year: null
     test_year: null
     tb_update_freq: 'epoch'
