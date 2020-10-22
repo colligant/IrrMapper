@@ -131,6 +131,12 @@ if __name__ == '__main__':
                 weight_decay_const=config.model_settings.weight_decay_const,
                 apply_batchnorm=config.model_settings.apply_batchnorm
                 )
+    elif config.model_settings.unet_dropout:
+        model = unet.unet_dropout((None, None, config.model_settings.unet_input_channels), 
+                n_classes=config.model_settings.num_classes,
+                initial_exp=config.model_settings.unet_initial_exp,
+                weight_decay_const=config.model_settings.weight_decay_const,
+                apply_batchnorm=config.model_settings.apply_batchnorm)
     else:
         model = unet.unet((None, None, config.model_settings.unet_input_channels), 
                 n_classes=config.model_settings.num_classes,

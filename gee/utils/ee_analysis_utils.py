@@ -11,43 +11,47 @@ def confusion_matrices(irr_labels, unirr_labels, irr_image, unirr_image):
     mt = mt.toList(mt.size()).get(0)
     mt = ee.Feature(mt)
 
-    true_positive = irrImage.eq(irr_labels) # pred. irrigated, labeled irrigated
-    false_positive = irrImage.eq(unirr_labels) # pred. irrigated, labeled unirrigated
+    true_positive = irr_image.eq(irr_labels) # pred. irrigated, labeled irrigated
+    false_positive = irr_image.eq(unirr_labels) # pred. irrigated, labeled unirrigated
 
-    true_negative = unirrImage.eq(unirr_labels) # pred unirrigated, labeled unirrigated
-    false_negative = unirrImage.eq(irr_labels) # pred unirrigated, labeled irrigated
+    true_negative = unirr_image.eq(unirr_labels) # pred unirrigated, labeled unirrigated
+    false_negative = unirr_image.eq(irr_labels) # pred unirrigated, labeled irrigated
 
     TP = true_positive.reduceRegion(
      geometry=mt.geometry(),
-     reducer= ee.Reducer.count(),
+     reducer=ee.Reducer.count(),
      maxPixels=1e9,
+     crs='EPSG:5070',
      scale=30
      )
     FP = false_positive.reduceRegion(
      geometry=mt.geometry(),
-     reducer= ee.Reducer.count(),
+     reducer=ee.Reducer.count(),
      maxPixels=1e9,
+     crs='EPSG:5070',
      scale=30
      )
     FN = false_negative.reduceRegion(
      geometry=mt.geometry(),
-     reducer= ee.Reducer.count(),
+     reducer=ee.Reducer.count(),
      maxPixels=1e9,
+     crs='EPSG:5070',
      scale=30
      )
     TN = true_negative.reduceRegion(
      geometry=mt.geometry(),
-     reducer= ee.Reducer.count(),
+     reducer=ee.Reducer.count(),
      maxPixels=1e9,
+     crs='EPSG:5070',
      scale=30
      )
 
-    print("lanid")
     print("TP", TP.getInfo())
     print("FP", FP.getInfo())
     print("FN", FN.getInfo())
     print("TN", TN.getInfo())
-    
+
+
 def irrigated_acres_by_crop(irrigated_raster, county_shapefile, year):
     if county_shapefile is None:
         region = ee.FeatureCollection('users/tcolligan0/Montana')
@@ -248,23 +252,7 @@ def mask_irrigated_raster_to_cdl(irrigated_raster, cdl_class, county_shapefile, 
     return irr_areas.merge(unirr_area)
 
 
-if __name__ == '__main__':
-    
-    year = 2012
-
-
-    non_irrigated = ee.FeatureCollection('users/tcolligan0/nonirrigated');
-    fallow = ee.FeatureCollection('users/tcolligan0/fallow_11FEB');
-    irrigated = ee.FeatureCollection('users/tcolligan0/irrigated_MT_13MAR2020');
-    fallow = fallow.filter(ee.Filter.eq("YEAR", year));
-    non_irrigated = nonIrrigated.merge(fallow);
-    irrigated = irrigated.filter(ee.Filter.eq("YEAR", year));
-
-    irr_labels = ee.Image(1).byte().paint(irrigated, 0)
-    irr_labels = irr_labels.updateMask(irr_labels.Not())
-    unirr_labels = ee.Image(1).byte().paint(non_irrigated, 0)
-    unirr_labels = unirr_labels.updateMask(unirr_labels.Not())
-
+def create_lanid_labels(year):
     lanid = ee.Image('users/xyhisu/irrigationMapping/results/LANID12');
     irr_mask = lanid.eq(1); # lanid is already masked
 
@@ -272,60 +260,82 @@ if __name__ == '__main__':
 
     unirr_image = ee.Image(1).byte().updateMask(unmasked.Not());
     irr_image = ee.Image(1).byte().updateMask(irr_mask);
+    return irr_image, unirr_image
+
+def create_unet_labels(year):
+    unet = ee.Image("users/tcolligan0/irrigationMT/irrMT{}".format(year))
+    unet = unet.select(["b1", "b2", "b3"], ["irr", "uncult", "unirr"])
+    irrImage = unet.select("irr")
+    irrMask = irrImage.gt(unet.select('uncult'))
+    irrMask = irrMask.And(unet.select('irr').gt(unet.select('unirr')))
+    unirrImage = ee.Image(1).byte().updateMask(irrMask.neq(1))
+    irrImage = ee.Image(1).byte().updateMask(irrMask.eq(1))
+    return irrImage, unirrImage
+
+def create_rf_labels(year):
+    year = '2012';
+    begin = year + '-01-01'
+    end = year + '-12-31'
+    rf = ee.ImageCollection('users/dgketchum/IrrMapper/version_2');
+    rf = rf.filter(ee.Filter.date(begin, end)).select('classification').mosaic();
+    irrMask = rf.lt(1);
+    unirrImage = ee.Image(1).byte().updateMask(irrMask.Not());
+    irrImage = ee.Image(1).byte().updateMask(irrMask);
+    return irrImage, unirrImage
+
+def create_mirad_labels(year):
+    mirad = ee.Image('users/tcolligan0/MIRAD/mirad{}MT'.format(year));
+    irrMask = mirad.eq(1);
+    unirrImage = ee.Image(1).byte().updateMask(irrMask.Not());
+    irrImage = ee.Image(1).byte().updateMask(irrMask);
+    return irrImage, unirrImage
+
+def create_irrigated_labels(all_data, year):
+    if all_data:
+        non_irrigated = ee.FeatureCollection('users/tcolligan0/merged_shapefile_unirr_wetlands_unc');
+        fallow = ee.FeatureCollection('users/tcolligan0/fallow_11FEB');
+        irrigated = ee.FeatureCollection('users/tcolligan0/irrigated_MT_13MAR2020');
+        fallow = fallow.filter(ee.Filter.eq("YEAR", year));
+        non_irrigated = non_irrigated.merge(fallow);
+        irrigated = irrigated.filter(ee.Filter.eq("YEAR", year));
+    else:
+        root = 'users/tcolligan0/test-data-aug24/'
+        non_irrigated = ee.FeatureCollection(root + 'uncultivated_test');
+        non_irrigated = non_irrigated.merge(ee.FeatureCollection(root + 'unirrigated_test'));
+        non_irrigated = non_irrigated.merge(ee.FeatureCollection(root + 'wetlands_buffered_test'));
+        
+        fallow = ee.FeatureCollection(root + 'fallow_test');
+        irrigated = ee.FeatureCollection(root + 'irrigated_test');
+        fallow = fallow.filter(ee.Filter.eq("YEAR", year));
+        non_irrigated = non_irrigated.merge(fallow);
+        irrigated = irrigated.filter(ee.Filter.eq("YEAR", year))
 
     irr_labels = ee.Image(1).byte().paint(irrigated, 0);
-    irr_labels = irrLabels.updateMask(irr_labels.Not());
+    irr_labels = irr_labels.updateMask(irr_labels.Not());
     unirr_labels = ee.Image(1).byte().paint(non_irrigated, 0)
     unirr_labels = unirr_labels.updateMask(unirr_labels.Not());
 
-    confusion_matrices(irr_labels, unirr_labels, irr_image, unirr_image)
+    return irr_labels, unirr_labels
 
-     
+if __name__ == '__main__':
 
-
-    #timeseries_met_data_mt(2008)
-    '''
-    irrigated_raster = 'users/tcolligan0/irrigation-rasters-sept27/irrMT{}'
-    county_shapefile = 'users/tcolligan0/County'
-    fc = ee.FeatureCollection([])
-    dict_of_dicts = {}
-    for year in range(2008, 2019):
-        print(year)
-        fc = irrigated_acres_by_crop(irrigated_raster.format(year), None, year)
-        dict_of_dicts[str(year)] = fc
-
-    import json
-    with open('crop_proportions.json', 'w') as f:
-        j = json.dumps(dict_of_dicts)
-        f.write(j)
-
-
-    '''
-    '''
+    irr_base = 'users/tcolligan0/irrigation-rasters-sept27/irrMT{}'
+    county = 'users/tcolligan0/County'
+    fc = None
     for year in range(2000, 2020):
-        raster = irrigated_raster.format(year)
-        print('analyzing', os.path.basename(raster))
-        feature_collection = export_timeseries_of_met_data(county_shapefile, 2012, reduction_type='mean')
-        fc = fc.merge(feature_collection)
-
+        irr = irr_base.format(year)
+        fw = irrigated_predictions_by_county(irr, county, year)
+        if fc is None:
+            fc = fw
+        else:
+            fc = fc.merge(fw)
     task = ee.batch.Export.table.toDrive(
             collection=fc,
-            description='precipallyears_10-06',
-            )
+            description="all_years"
+        )
     task.start()
-    '''
-    '''
-    for year in range(2008, 2020):
-        raster = irrigated_raster.format(year)
-        print('analyzing', os.path.basename(raster))
-        feature_collection = mask_irrigated_raster_to_cdl(raster, 36, county_shapefile, year)
-        task = ee.batch.Export.table.toAsset(
-                collection=feature_collection,
-                description='shapefileAlf',
-                assetId='users/tcolligan0/exampleExport',
-                )
-        task.start()
-        exit()
-        fc = fc.merge(feature_collection)
 
-    '''
+
+
+
+    
