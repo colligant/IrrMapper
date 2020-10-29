@@ -46,14 +46,37 @@ def unet_dropout(input_shape, initial_exp, n_classes, weight_decay_const,
 
     initial_exp += 1
 
-    c3 = ConvBlock(mp2, base**initial_exp, weight_decay_const,
-            apply_batchnorm)
+    filters = base**initial_exp
+    padding = 'same'
+    # c3 = ConvBlock(mp2, base**initial_exp, weight_decay_const,
+    #         apply_batchnorm)
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+            kernel_regularizer=l2(weight_decay_const))(mp2)
+    x = Activation('relu')(x)
+    x = SpatialDropout2D(0.2)(x)
+
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+            kernel_regularizer=l2(weight_decay_const))(x)
+    x = Activation('relu')(x)
+    c3 = SpatialDropout2D(0.5)(x)
+
     mp3 = MaxPooling2D(pool_size=2, strides=2)(c3)
 
     initial_exp += 1 
 
-    c4 = ConvBlock(mp3, base**initial_exp, weight_decay_const,
-            apply_batchnorm)
+    # c4 = ConvBlock(mp3, base**initial_exp, weight_decay_const,
+    #         apply_batchnorm)
+    filters = base**initial_exp
+    padding = 'same'
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+            kernel_regularizer=l2(weight_decay_const))(mp3)
+    x = Activation('relu')(x)
+    x = SpatialDropout2D(0.2)(x)
+
+    x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
+            kernel_regularizer=l2(weight_decay_const))(x)
+    x = Activation('relu')(x)
+    c4 = SpatialDropout2D(0.5)(x)
     mp4 = MaxPooling2D(pool_size=2, strides=2)(c4)
 
     initial_exp += 1
@@ -99,11 +122,9 @@ def unet_dropout(input_shape, initial_exp, n_classes, weight_decay_const,
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(u4_c1)
     x = Activation('relu')(x)
-    x = SpatialDropout2D(0.5)(x)
 
     x = Conv2D(filters=filters, kernel_size=3, strides=1, padding=padding,
             kernel_regularizer=l2(weight_decay_const))(x)
-    x = SpatialDropout2D(0.2)(x)
     x = Activation('relu')(x)
 
     softmax = Conv2D(n_classes, kernel_size=1, strides=1,

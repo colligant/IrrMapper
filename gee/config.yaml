@@ -8,26 +8,27 @@ model_settings:
     decay_rate: 0.6
     staircase: True
     weight_decay_const: 0.0001
-    batch_size: 20
+    batch_size: 25
     num_classes: 3
     training_steps_per_epoch: 1000 # 1258 I know there are 13968 test tiles.
-    epochs: 1000
+    epochs: 100
     f1_focus_on_class: 0
     use_cuda: True
-    print_model_summary: False
+    print_model_summary: True
     train_verbosity: 2 # 0:silent, 1:progress bar, 2:one line per epoch
     temporal_unet: False
-    unet_dropout: True
+    unet_dropout: False
     temporal_unet_initial_filters: 16
     timesteps: 6
     border_labels: False
+    bootstrap: True
 
 data_settings:
     data_root: '/home/thomas/ssd/'
-    train_path: 'train-data-sept5/'
-    test_path: 'test-data-sept5/'
-    sample_weights_train: [0, 0, 0] # TODO: Implement this somehow (hah).
-    model_save_directory: '/home/thomas/models/save_all_models'
+    train_path: 'train-data-sept5'
+    test_path: 'test-data-sept5'
+    sample_weights_train: [0, 0, 0] 
+    model_save_directory: '/home/thomas/models/bootstrap_oct29/'
     shuffle_buffer_size: 10
     add_ndvi: False
     train_year: null

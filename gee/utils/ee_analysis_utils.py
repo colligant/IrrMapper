@@ -46,10 +46,12 @@ def confusion_matrices(irr_labels, unirr_labels, irr_image, unirr_image):
      scale=30
      )
 
-    print("TP", TP.getInfo())
-    print("FP", FP.getInfo())
-    print("FN", FN.getInfo())
-    print("TN", TN.getInfo())
+    out = {}
+    out["TP"] = TP.getInfo()
+    out["FP"] = FP.getInfo()
+    out["FN"] = FN.getInfo()
+    out["TN"] = TN.getInfo()
+    return out
 
 
 def irrigated_acres_by_crop(irrigated_raster, county_shapefile, year):
@@ -317,25 +319,67 @@ def create_irrigated_labels(all_data, year):
 
     return irr_labels, unirr_labels
 
+
 if __name__ == '__main__':
 
-    irr_base = 'users/tcolligan0/irrigation-rasters-sept27/irrMT{}'
-    county = 'users/tcolligan0/County'
-    fc = None
-    for year in range(2000, 2020):
-        irr = irr_base.format(year)
-        fw = irrigated_predictions_by_county(irr, county, year)
-        if fc is None:
-            fc = fw
-        else:
-            fc = fc.merge(fw)
-    task = ee.batch.Export.table.toDrive(
-            collection=fc,
-            description="all_years"
-        )
-    task.start()
+    import json
 
+    with open('./mirad_2017.json', 'r') as f:
+        method_to_year_and_conf = json.load(f)
 
+    print(method_to_year_and_conf.keys())
+    for method, year_dict in method_to_year_and_conf.items():
+        tp_ = 0
+        fp_ = 0
+        fn_ = 0
+        tn_ = 0
+        # for year in range(2008, 2014):
+        for year in [2012]:
+            c = year_dict[str(year)]
+            tp_ += c['TP']['constant']
+            fp_ += c['FP']['constant']
+            tn_ += c['TN']['constant']
+            fn_ += c['FN']['constant']
+        prec = (tp_) / (tp_+fp_)
+        rec = (tp_) / (tp_+fn_)
+        acc = (tp_+tn_)/(tp_+fn_+fp_+tn_)
+        s = '{} {} {:.5f} {:.5f} {:.5f}, f1: {}'
 
-
+        print(s.format(method, year, acc, prec, rec, 2*(prec*rec)/(prec+rec)))
     
+     #from collections import defaultdict
+     #fns = [create_rf_labels, create_unet_labels, create_lanid_labels]
+     #fns = [create_mirad_labels]
+     #final = defaultdict(dict)
+     #import json
+     #years = range(2008, 2014)
+     #years = [2002, 2007, 2012, 2017]
+     #for year in years:
+     #    for f in fns:
+     #        irr_labels, unirr_labels = create_irrigated_labels(False, year)
+     #        irr_image, unirr_image = f(year)
+     #        out = confusion_matrices(irr_labels, unirr_labels, irr_image, unirr_image)
+     #        final[f.__name__][year] = out
+     #        print(final)
+
+     #    with open('./mirad_{}.json'.format(year), 'w') as f:
+     #        json.dump(final, f)
+     #    print(year)
+     #    print(final)
+
+
+    # irr_base = 'users/tcolligan0/irrigation-rasters-sept27/irrMT{}'
+    # county = 'users/tcolligan0/County'
+    # fc = None
+    # for year in range(2000, 2020):
+    #     irr = irr_base.format(year)
+    #     fw = irrigated_predictions_by_county(irr, county, year)
+    #     if fc is None:
+    #         fc = fw
+    #     else:
+    #         fc = fc.merge(fw)
+    # task = ee.batch.Export.table.toDrive(
+    #         collection=fc,
+    #         description="all_years"
+    #     )
+    # task.start()

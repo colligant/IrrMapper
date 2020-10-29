@@ -328,42 +328,43 @@ def precip_timeseries():
     plt.show()
 
 if __name__ == '__main__':
-    r1 = '/tmp/irrsingle_patch_extract_block2013_2013.tif'
-    r2 = '../irrsingle_patch_extract_block2013_2013.tif'
-    a = (calc_irr_area(r1))
-    b = (calc_irr_area(r2))
+    r1 = '/home/thomas/mt/montana-irr-rasters/rasters/irrMT{}.tif'
+    # for i in range(2000,2020):
+    #     a = (calc_irr_area(r1.format(i)))
+    #     print(i,a)
+    r1 = '/home/thomas/mt/montana-irr-rasters/rasters/irrMT2012Clipped.tif'
+    a = calc_irr_area(r1)
+    print(a)
 
-    '''
     # crop_proportions_over_time('./crop_proportions.json')
-    alf = pd.read_csv('/home/thomas/mt/statistics/unirrigated_alfalfa.csv')
-    unirr = pd.read_csv('/home/thomas/mt/statistics/irrigated_alfalfa.csv')
-    alf = alf.set_index('Unnamed: 0')
-    unirr = unirr.set_index('Unnamed: 0')
-    precip = pd.read_csv('/home/thomas/mt/statistics/precip_1999_2020.csv')
-    precip['date'] = [int(str(p)[:-2]) for p in precip['date']]
-    precip = precip[precip['date'] > 2007]
-    precip = precip[precip['date'] < 2020]
-    precip = precip.set_index('date')
+    # alf = pd.read_csv('/home/thomas/mt/statistics/unirrigated_alfalfa.csv')
+    # unirr = pd.read_csv('/home/thomas/mt/statistics/irrigated_alfalfa.csv')
+    # alf = alf.set_index('Unnamed: 0')
+    # unirr = unirr.set_index('Unnamed: 0')
+    # precip = pd.read_csv('/home/thomas/mt/statistics/precip_1999_2020.csv')
+    # precip['date'] = [int(str(p)[:-2]) for p in precip['date']]
+    # precip = precip[precip['date'] > 2007]
+    # precip = precip[precip['date'] < 2020]
+    # precip = precip.set_index('date')
 
 
-    bars = defaultdict(dict)
-    for year in alf.index:
-        a = alf.loc[year, :]
-        bars[year]['irr. alfalfa'] = np.sum(a)
-        bars[year]['unirr. alfalfa'] = np.sum(unirr.loc[year, :])
+    # bars = defaultdict(dict)
+    # for year in alf.index:
+    #     a = alf.loc[year, :]
+    #     bars[year]['irr. alfalfa'] = np.sum(a)
+    #     bars[year]['unirr. alfalfa'] = np.sum(unirr.loc[year, :])
 
 
-    sns.set()
-    f, ax = plt.subplots()
-    df = pd.DataFrame.from_dict(bars)
-    df.T.plot(kind='bar', stacked=True, ax=ax)
-    plt.xticks(rotation=30)
-    ax1 = ax.twinx()
-    ax1.plot(range(12), precip['precip'], 'r', label='precip')
-    ax1.legend()
-    ax1.set_ylabel('precip (in)')
-    ax.set_ylabel('irr. area (acres)')
-    ax1.grid(None)
-    plt.xlabel('year')
-    plt.show()
-    '''
+    # sns.set()
+    # f, ax = plt.subplots()
+    # df = pd.DataFrame.from_dict(bars)
+    # df.T.plot(kind='bar', stacked=True, ax=ax)
+    # plt.xticks(rotation=30)
+    # ax1 = ax.twinx()
+    # ax1.plot(range(12), precip['precip'], 'r', label='precip')
+    # ax1.legend()
+    # ax1.set_ylabel('precip (in)')
+    # ax.set_ylabel('irr. area (acres)')
+    # ax1.grid(None)
+    # plt.xlabel('year')
+    # plt.show()

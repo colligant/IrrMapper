@@ -78,6 +78,7 @@ def create_new_model_save_directory(model_directory):
     timestr = time.strftime("%Y%m%d-%H%M%S")
     return model_directory + '-' +  timestr
 
+
 class ConfigObj:
 
     def __init__(self, config_file):
@@ -167,7 +168,8 @@ if __name__ == '__main__':
         buffer_size=config.data_settings.shuffle_buffer_size,
         n_classes=config.model_settings.num_classes,
         temporal_unet=config.model_settings.temporal_unet,
-        border_labels=config.model_settings.border_labels)
+        border_labels=config.model_settings.border_labels,
+        bootstrap=config.model_settings.bootstrap)
 
     validation = utils.make_validation_dataset(os.path.join(config.data_settings.data_root, 
         config.data_settings.test_path), 

@@ -42,7 +42,7 @@ def create_class_labels(shapefile_to_feature_collection):
     for shapefile, feature_collection in shapefile_to_feature_collection.items():
         class_labels = class_labels.paint(feature_collection, 
                 assign_class_code(shapefile)+1)
-    return class_labels.updateMask(class_labels)
+    return class_labels
 
 
 def ls8mask(img):

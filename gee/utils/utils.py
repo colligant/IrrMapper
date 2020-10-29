@@ -216,6 +216,7 @@ def to_tuple(add_ndvi, n_classes, border_labels):
 
     return _to_tuple
 
+
 def add_ndvi_raster(image_stack):
 
     '''
@@ -303,18 +304,23 @@ def make_validation_dataset(root,
     return datasets
 
 def make_balanced_training_dataset(root,
-        add_ndvi,
-        batch_size, 
-        sample_weights, 
-        year,
-        buffer_size, 
-        n_classes,
-        temporal_unet,
-        border_labels):
+                                   add_ndvi,
+                                   batch_size, 
+                                   sample_weights, 
+                                   year,
+                                   buffer_size, 
+                                   n_classes,
+                                   temporal_unet,
+                                   border_labels,
+                                   bootstrap):
 
     pattern = "*gz"
     datasets = []
     files = tf.io.gfile.glob(os.path.join(root, pattern))
+
+    if bootstrap:
+        print('bootstrapping...')
+        files = np.random.choice(files, size=len(files), replace=True)
 
     if year is not None:
         print('Length of train files before removing year {}: {}'.format(year, len(files)))
@@ -322,8 +328,8 @@ def make_balanced_training_dataset(root,
         print('Length of train files after removing year {}: {}'.format(year, len(files)))
 
     files = filter_list_into_classes(files) 
-    
     weights = []
+
     for class_name, file_list in files.items():
         if temporal_unet:
             dataset = get_shared_dataset(file_list, add_ndvi, n_classes)
@@ -335,6 +341,7 @@ def make_balanced_training_dataset(root,
 
     dataset = tf.data.experimental.sample_from_datasets(datasets,
             weights=weights).batch(batch_size)
+
     return dataset
 
 

@@ -1,7 +1,6 @@
 import ee
 # ee.Authenticate()
 ee.Initialize()
-import tensorflow as tf
 import time
 import os
 import numpy as np
@@ -29,11 +28,18 @@ class GEEExtractor:
     def _construct_data_stack(self):
         image_stack = ee_utils.preprocess_data(self.year).toBands()
         features = [feat['id'] for feat in image_stack.getInfo()['bands']]
-        self.features = features + ['constant']
+        self.features = features + ['elevation', 'slope', 'constant']  
+
         self.shapefile_to_feature_collection = \
                 ee_utils.temporally_filter_features(self.mask_shapefiles, self.year)
+
         class_labels = ee_utils.create_class_labels(self.shapefile_to_feature_collection)
-        self.image_stack = ee.Image.cat([image_stack, class_labels]).int16()
+
+        terrain = ee.Image("USGS/SRTMGL1_003").select('elevation')
+        slope = ee.Terrain.slope(terrain)
+
+        self.image_stack = ee.Image.cat([terrain, slope]).float()
+        # self.image_stack = ee.Image.cat([image_stack, terrain, slope, class_labels]).float()
 
         list_ = ee.List.repeat(1, self.kernel_size)
         lists = ee.List.repeat(list_, self.kernel_size)
@@ -46,7 +52,7 @@ class GEEExtractor:
 
 
     def extract_data_over_patches(self, patch_shapefiles, target_patch_name=None,
-            buffer_region=None):
+            buffer_region=None, geotiff=False):
         '''
         Extracts TFRecords over a ROI. ROIs are features in patch_shapefile.
         '''
@@ -69,7 +75,10 @@ class GEEExtractor:
                 if buffer_region is not None:
                     patch = patch.buffer(buffer_region)
                     patch = ee.Feature(patch.bounds())
-                self._create_and_start_image_task(patch, out_filename, idx, target_patch_name)
+                self._create_and_start_image_task(patch, out_filename,
+                        idx=idx,
+                        target_patch_name=target_patch_name,
+                        geotiff=geotiff)
 
 
     def extract_data_over_shapefile(self, shapefile, percent=None, num=None,
@@ -86,7 +95,11 @@ class GEEExtractor:
         except KeyError as e:
             feature_collection = ee.FeatureCollection(shapefile)
         feature_collection = feature_collection.toList(feature_collection.size())
-        n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][self.year]
+        try:
+            n_features = SHP_TO_YEAR_AND_COUNT[os.path.basename(shapefile)][self.year]
+        except:
+            n_features = 5238
+
         out_filename = self._create_filename(shapefile)
 
         if percent is not None:
@@ -94,14 +107,14 @@ class GEEExtractor:
             if shuffle:
                 indices = [int(i) for i in np.random.choice(n_features, size=n, replace=False)]
             else:
-                indices = [int(i) for i in np.range(n)]
+                indices = [int(i) for i in range(n)]
         elif num is not None:
             n = int(num)
             assert( n <= n_features )
             if shuffle:
                 indices = [int(i) for i in np.random.choice(n_features, size=n, replace=False)]
             else:
-                indices = [int(i) for i in np.range(n)]
+                indices = [int(i) for i in range(n)] # GEE wants ints.
         else:
             print("Either percent or num features to extract needs to be specified")
             exit(1)
@@ -112,14 +125,17 @@ class GEEExtractor:
         else:
             print('No features for {}'.format(out_filename))
             return
+
         geometry_sample = ee.ImageCollection([])
         feature_count = 0
         for idx in indices:
+            feat = ee.Feature(feature_collection.get(idx))
             sample = self.data_stack.sample(
-                     region=ee.Feature(feature_collection.get(idx)).geometry(),
+                     region=feat.geometry(),
                      scale=30,
                      numPixels=1,
-                     tileScale=8
+                     tileScale=2,
+                     dropNulls=False
                      )
             geometry_sample = geometry_sample.merge(sample)
             if (feature_count+1) % self.n_shards == 0:
@@ -130,25 +146,38 @@ class GEEExtractor:
         self._create_and_start_table_task(geometry_sample, out_filename, idx)
 
 
-    def _create_and_start_image_task(self, patch, out_filename, idx, target_patch_name):
+    def _create_and_start_image_task(self, patch, out_filename, idx, target_patch_name,
+            geotiff=False):
 
         if target_patch_name is not None:
             if patch.get('NAME').getInfo() not in set(target_patch_name):
                 return
 
+        kwargs = {
+                'image':self.image_stack,
+                'bucket':self.out_gs_bucket,
+                'description':out_filename,
+                'fileNamePrefix':os.path.join(self.out_folder, out_filename + "_" + str(self.year)\
+                        + str(time.time())),
+                'crs':'EPSG:5070',
+                'region':patch.geometry(),
+                'scale':30,
+                }
+
+        if geotiff:
+            kwargs['fileFormat'] = 'GeoTIFF'
+
+        else:
+
+            kwargs['fileFormat'] = 'TFRecord'
+            kwargs['formatOptions'] = {'patchDimensions':256,
+                                      'compressed':True,
+                                      'maskedThreshold':0.99}
+
         task = ee.batch.Export.image.toCloudStorage(
-                image=self.image_stack,
-                bucket=self.out_gs_bucket,
-                description=out_filename,
-                fileNamePrefix=os.path.join(self.out_folder, out_filename + "_" + str(self.year)),
-                fileFormat='GeoTIFF',
-                crs='EPSG:5070',
-                region=patch.geometry(),
-                scale=30,
-                # formatOptions={'patchDimensions':256,
-                #                'compressed':True,
-                #                'maskedThreshold':0.99},
+                **kwargs
                 )
+        
         self._start_task_and_handle_exception(task)
 
     
@@ -186,91 +215,55 @@ if __name__ == '__main__':
 
     gs_bucket = 'ee-irrigation-mapping'
     test_root = 'users/tcolligan0/test-data-aug24/'
+    # Removed fallow.
     test_shapefiles = ['irrigated_test', 'uncultivated_test', 'unirrigated_test',
-            'wetlands_buffered_test', 'fallow_test']
+            'wetlands_buffered_test']
     test_shapefiles = [test_root + s for s in test_shapefiles]
 
     train_root = 'users/tcolligan0/train-data-aug24/'
     train_shapefiles = ['irrigated_train', 'uncultivated_train', 'unirrigated_train',
-                        'wetlands_buffered_train', 'fallow_train']
+                        'wetlands_buffered_train']
     train_shapefiles = [train_root + s for s in train_shapefiles]
+    # really terrible name. It's train points.
+    train_points = ['users/tcolligan0/test_points_maybepoints']
 
+# 2003
+# 2008
+# 2009
+# 2010
+# 2011
+# 2012
+# 2013
+# 2015
     year = 2013
     extractor = GEEExtractor(year, 
                              out_gs_bucket=gs_bucket, 
-                             out_folder='single_patch',
-                             mask_shapefiles=test_shapefiles + train_shapefiles,
+                             out_folder='slope-and-dem-oct29/', 
+                             mask_shapefiles=train_shapefiles,
                              n_shards=100)
-    patch = 'users/tcolligan0/extract_block'
-    extractor.extract_data_over_patches(patch, target_patch_name=None)
-    exit()
-
-
-    
-    years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
-
-    years = [2009, 2010, 2011, 2012, 2013]
-
-    patches = 'users/tcolligan0/test-data-aug24/test_regions'
-    counties = 'users/tcolligan0/County'
-    extract_test = False
-    extract_train = True
-    
-    leftovers = {
-            2000:['park'],
-            2001:['park'],
-            2002:['falcon', 'wibeaux'],
-            2003:['park'],
-            2004:['teton'],
-            2005:['park'],
-            2006:['sanders'],
-            2007:['pondera'],
-            2008:['gallatin'],
-            2009:['park'],
-            2010:['cascade'],
-            2011:['park'],
-            2012:['golden valley'],
-            2013:['park'],
-            2014:['choteau'],
-            2015:['broadwater'],
-            2016:['carbon'],
-            2017:['park'],
-            2019:['park']
-            }
-
-    for year in leftovers.keys():
-        print('extracting for', year)
-        extractor = GEEExtractor(year, 
-                                 out_gs_bucket=gs_bucket, 
-                                 out_folder='leftovers_sept24/',
-                                 mask_shapefiles=test_shapefiles + train_shapefiles,
-                                 n_shards=100)
-        extractor.extract_data_over_patches(counties, 
-                target_patch_name=[n.upper() for n in leftovers[year]])
-
+    extractor.extract_data_over_patches('users/tcolligan0/County', geotiff=True)
     '''
-
-
-    if extract_test:
+    extract_test = True
+    extract_train = True
+    if extract_train:
+        #years = [2008, 2009, 2010, 2011, 2012, 2015]
+        years = [2003]
         for year in years:
             extractor = GEEExtractor(year, 
                                      out_gs_bucket=gs_bucket, 
-                                     out_folder='test-data-sept5/',
+                                     out_folder='train-data-oct28/', 
+                                     mask_shapefiles=train_shapefiles,
+                                     n_shards=100)
+            for shapefile in train_points:
+                extractor.extract_data_over_shapefile(shapefile, percent=100, shuffle=False)
+    if extract_test:
+        #years = [2003, 2008, 2009, 2010, 2011, 2012, 2015]
+        years = [2013]
+        for year in years:
+            extractor = GEEExtractor(year, 
+                                     out_gs_bucket=gs_bucket, 
+                                     out_folder='test-data-oct28/', 
                                      mask_shapefiles=test_shapefiles,
                                      n_shards=100)
-            extractor.extract_data_over_patches(patches)
-    if extract_train:
-        for year in years:
-            extractor = GEEExtractor(year, 
-                                     out_gs_bucket=gs_bucket, 
-                                     out_folder='train-data-sept10/', 
-                                     mask_shapefiles=train_shapefiles,
-                                     n_shards=30)
-            for shapefile in train_shapefiles:
-                if 'irrigated_train' in shapefile and 'unirrigated_train' not in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=10)
-                elif 'wetlands' in shapefile:
-                    extractor.extract_data_over_shapefile(shapefile, percent=2)
-                else:
-                    extractor.extract_data_over_shapefile(shapefile, percent=2)
+            extractor.extract_data_over_patches('users/tcolligan0/test-data-aug24/test_regions')
     '''
