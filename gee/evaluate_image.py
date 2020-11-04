@@ -190,7 +190,7 @@ if __name__ == '__main__':
 
     ap.add_argument('--model-path', required=True)
     ap.add_argument('--data-directory', type=str) 
-    ap.add_argument('--image-file', type=str)
+    ap.add_argument('--image-file', type=str) 
     ap.add_argument('--year', type=str)
     ap.add_argument('--out-directory', required=True)
     ap.add_argument('--n-classes', type=int, required=True)
