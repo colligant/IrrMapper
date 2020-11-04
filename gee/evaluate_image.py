@@ -17,7 +17,7 @@ NDVI_INDICES = [(2, 3), (8, 9), (14, 15), (20, 21), (26, 27), (32, 33)]
 
 
 def iterate_over_image_and_evaluate_patchwise(image_stack, model, out_filename, out_meta,
-        n_classes, tile_size, chunk_size):
+        n_classes, tile_size, chunk_size, dropout, h5_model):
 
     # pad on both sides by tile_size // 2
     pad_width  = tile_size 
@@ -35,17 +35,23 @@ def iterate_over_image_and_evaluate_patchwise(image_stack, model, out_filename, 
             image_tile = tf.convert_to_tensor(image_stack[:, i-tile_size//2:i+tile_size//2, j-tile_size//2:j+tile_size//2, :])
             if np.all(image_tile == 0):
                 continue
-            preds = np.squeeze(model(image_tile)['softmax'])
+            if dropout and h5_model:
+                preds = np.squeeze(model(image_tile, training=True))
+            else:
+                preds = np.squeeze(model(image_tile)['softmax'])
             predictions[i-chunk_size//2:i+chunk_size//2, j-chunk_size//2:j+chunk_size//2, :] += preds[diff:-diff, diff:-diff, :]
         stdout.write("{:.3f}\r".format(i/image_stack.shape[1]))
 
 
     predictions = predictions.transpose((2, 0, 1))
     predictions = predictions[:, pad_width:-pad_height, pad_width:-pad_width] 
-    predictions = np.round(predictions*255).astype(np.uint8)
-    out_meta.update({'count':n_classes, 'dtype':np.uint8})
-    with rasterio.open(out_filename, "w", **out_meta) as dst:
-        dst.write(predictions)
+    if not dropout:
+        predictions = np.round(predictions*255).astype(np.uint8)
+        out_meta.update({'count':n_classes, 'dtype':np.uint8})
+        with rasterio.open(out_filename, "w", **out_meta) as dst:
+            dst.write(predictions)
+    else:
+        return predictions
 
 def prepare_raster(f, ndvi):
 
@@ -97,7 +103,8 @@ def model_predictions(model_path,
                       tile_size,
                       chunk_size,
                       show_logs,
-                      ndvi):
+                      ndvi,
+                      dropout):
 
     if not show_logs:
         os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -114,11 +121,15 @@ def model_predictions(model_path,
     else:
         raise ValueError('Either data directory or image file must be provided')
 
-    loaded = tf.saved_model.load(model_path)
-    model = loaded.signatures["serving_default"]
-    n_classes = n_classes
-    
-    out_directory = out_directory
+    h5_model = False
+
+    if model_path.endswith('.h5'):
+        model = tf.keras.models.load_model(model_path)
+        h5_model = True
+
+    else:
+        loaded = tf.saved_model.load(model_path)
+        model = loaded.signatures["serving_default"]
 
     if not os.path.isdir(out_directory):
         os.makedirs(out_directory, exist_ok=True)
@@ -133,16 +144,42 @@ def model_predictions(model_path,
         out_filename = 'irr{}'.format(os.path.splitext(os.path.basename(f))[0])
         out_filename +=  os.path.basename(model_path) + ".tif"
         out_filename = os.path.join(out_directory, out_filename)
+
         if not os.path.isfile(out_filename):
             print(out_filename)
-            iterate_over_image_and_evaluate_patchwise(image_stack,
-                    model,
-                    out_filename,
-                    target_meta,
-                    n_classes=n_classes,
-                    tile_size=tile_size,
-                    chunk_size=chunk_size)
-
+            if dropout:
+                arrs = []
+                for _ in range(20):
+                    preds = iterate_over_image_and_evaluate_patchwise(image_stack,
+                            model,
+                            out_filename,
+                            target_meta,
+                            n_classes=n_classes,
+                            tile_size=tile_size,
+                            chunk_size=chunk_size,
+                            dropout=dropout,
+                            h5_model=h5_model)
+                    arrs.append(preds)
+                stacked = np.stack(arrs)
+                mean = np.mean(stacked, axis=0).astype(np.float32)
+                std = np.std(stacked, axis=0).astype(np.float32)**2
+                of_mean = os.path.splitext(out_filename)[0] + '_mean.tif'
+                of_std = os.path.splitext(out_filename)[0] + '_std.tif'
+                target_meta.update({'dtype':np.float32, 'count':n_classes})
+                with rasterio.open(of_mean, 'w', **target_meta) as dst:
+                    dst.write(mean)
+                with rasterio.open(of_std, 'w', **target_meta) as dst:
+                    dst.write(std)
+            else:
+                iterate_over_image_and_evaluate_patchwise(image_stack,
+                                                          model,
+                                                          out_filename,
+                                                          target_meta,
+                                                          n_classes=n_classes,
+                                                          tile_size=tile_size,
+                                                          chunk_size=chunk_size,
+                                                          dropout=dropout,
+                                                          h5_model=h5_model)
         else:
             print('file', f, 'already predicted, residing in', out_filename)
 
@@ -152,7 +189,7 @@ if __name__ == '__main__':
     ap = ArgumentParser()
 
     ap.add_argument('--model-path', required=True)
-    ap.add_argument('--data-directory', type=str)
+    ap.add_argument('--data-directory', type=str) 
     ap.add_argument('--image-file', type=str)
     ap.add_argument('--year', type=str)
     ap.add_argument('--out-directory', required=True)
@@ -162,6 +199,7 @@ if __name__ == '__main__':
     ap.add_argument('--chunk-size', type=int, default=256)
     ap.add_argument('--show-logs', action='store_true')
     ap.add_argument('--ndvi', action='store_true')
+    ap.add_argument('--dropout', action='store_true')
 
     args = ap.parse_args()
     model_predictions(args.model_path,
@@ -174,4 +212,5 @@ if __name__ == '__main__':
                       args.tile_size,
                       args.chunk_size,
                       args.show_logs,
-                      args.ndvi)
+                      args.ndvi,
+                      args.dropout)
