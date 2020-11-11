@@ -1,24 +1,32 @@
 import os
 import numpy as np
 import rasterio
+import rasterio.mask
 import json
+import fiona
 import geopandas as gpd
 import pandas as pd
+import matplotlib
+matplotlib.use("tkagg")
 import matplotlib.pyplot as plt
 import seaborn
 import seaborn as sns
 
 import warnings; warnings.filterwarnings('ignore', 'GeoSeries.notna', UserWarning)
 
+from sklearn.metrics import confusion_matrix
 from shapely.geometry import box, Polygon
-import runspec as rs
+from pyproj import CRS
 from rasterio import merge
 from copy import deepcopy
 from glob import glob
 from subprocess import check_output
 from collections import defaultdict
 
+import runspec as rs
+
 ACRES_PER_SQUARE_METER = 0.000247105
+MONTANA_SHAPEFILE = '/home/thomas/irrigated-training-data-aug21/aux-shapefiles/mt.shp'
 
 def crop_proportions_over_time(json_path):
     n = 6
@@ -60,8 +68,6 @@ def crop_proportions_over_time(json_path):
     plt.ylabel('Irrigated proportion')
     plt.show()
 
-     
-
 
 def merge_rasters_gdal(raster_files, out_filename):
     if not len(raster_files):
@@ -71,6 +77,7 @@ def merge_rasters_gdal(raster_files, out_filename):
         cmd = check_output(['gdal_merge.py', '-of', 'GTiff', '-ot', 'Byte',
             '-o', out_filename] + raster_files)
         print(cmd)
+
 
 def flu_data_irr_area_by_county(county_shp, flu, out_filename, plot=False,
         save=False):
@@ -305,6 +312,7 @@ def plot_df(df, counties=None):
     plt.legend()
     plt.title('irr. area, selected counties in MT')
 
+
 def precip_timeseries():
     irr = pd.read_csv('/home/thomas/mt/statistics/irrigated_acreage_cnn_sept28.csv')
     irr_summed = np.sum(irr, axis=1)
@@ -322,19 +330,257 @@ def precip_timeseries():
     ax.set_ylim([14, 23])
     summ.plot(x='date', y='acreage', ax=ax1, c='r', label='irr. area', legend=False)
     ax1.set_ylabel('irr. area (acres)')
-    fig.legend(loc='upper right', bbox_to_anchor=(1,1), bbox_transform=ax.transAxes)
+    fig.legend(loc='upper right', bbox_to_anchor=(1, 1), bbox_transform=ax.transAxes)
     ax1.grid(None)
     plt.title('irr. area and precip by year')
     plt.show()
 
+def mask_raster_to_shapefile(shapefile, raster, year, return_binary=True):
+    ''' 
+    Generates a mask with 1 everywhere 
+    shapefile data is present and a no_data value everywhere else.
+    no_data is -1 in this case, as it is never a valid class label.
+    Switching coordinate reference systems is important here, or 
+    else the masking won't work.
+    '''
+    shp = gpd.read_file(shapefile)
+    shp = shp[shp.geometry.notnull()]
+    with rasterio.open(raster, 'r') as src:
+        # pyproj deprecated the +init syntax.
+        crs = CRS(src.crs['init'])
+        shp = shp.to_crs(crs)
+        features = get_features(shp, year)
+        if len(features):
+            out_image, out_transform = rasterio.mask.mask(src, shapes=features,
+                    filled=False)
+        else:
+            return None, None
+        if return_binary:
+            out_image[out_image != 0] = 1 
+        meta = src.meta
+    return out_image, meta
+
+def get_features(gdf, year):
+    tmp = json.loads(gdf.to_json())
+    if year is not None:
+        for feature in tmp['features']:
+            break
+        features = [feature['geometry'] for feature in tmp['features'] if feature['properties']['YEAR'] == year]
+    else:
+        features = [feature['geometry'] for feature in tmp['features']]
+    return features
+
+def create_class_labels(shapefiles, assign_shapefile_class_code, mask_file, year):
+    first = True
+    class_labels = None
+    for f in shapefiles:
+        class_code = assign_shapefile_class_code(f)
+        # print(f, class_code)
+        osb = os.path.basename(f)
+        if 'irrigated' in osb and 'unirrigated' not in osb:
+            out, _ = mask_raster_to_shapefile(f, mask_file, year=year, 
+                return_binary=False)
+        elif 'fallow' in osb:
+            out, _ = mask_raster_to_shapefile(f, mask_file, year=year, 
+                return_binary=False)
+        else:
+            out, _ = mask_raster_to_shapefile(f, mask_file, year=None, 
+                return_binary=False)
+
+        if out is None:
+            print('no features for {}, {}'.format(osb, year))
+            continue
+
+        if first:
+            class_labels = out
+            class_labels[~class_labels.mask] = class_code
+            first = False
+        else:
+            class_labels[~out.mask] = class_code
+    return class_labels
+
+def irrigated_label_mask(shapefiles):
+    pass
+
+
+def clip_to_mt_and_get_area(tif, save=False):
+
+    with fiona.open(MONTANA_SHAPEFILE, 'r') as s:
+        shapes = [feature['geometry'] for feature in s]
+
+    with rasterio.open(tif, 'r') as src:
+        out_image, out_transform = rasterio.mask.mask(src, shapes, crop=True)
+        out_meta = src.meta
+    nbands = out_meta['count']
+    out_meta.update({"driver": "GTiff",
+                     "height": out_image.shape[1],
+                     "width": out_image.shape[2],
+                     "transform": out_transform})
+    
+    out_f = os.path.splitext(tif)[0] + "_clipped.tif"
+
+    if save:
+        with rasterio.open(out_f,"w", **out_meta) as dest:
+            dest.write(out_image)
+    elif nbands == 1:
+        print(out_image.shape)
+
+    else:
+        amax = np.argmax(out_image, axis=0)
+        mask = (np.sum(out_image, axis=0) == 0)
+        amax = amax[~mask]
+        irrigated = amax[amax == 0]
+        return irrigated.shape[0]*(30**2)*ACRES_PER_SQUARE_METER
+
+
+def filter_shapefile_by_year(shapefile, year):
+
+    outf = os.path.splitext(os.path.basename(shapefile))[0] + "_{}.shp".format(year)
+    outf = os.path.join('/tmp/', outf)
+    gdf = gpd.read_file(shapefile)
+    gdf = gdf.loc[gdf['YEAR'] == year, :]
+    if gdf.shape[0] == 0:
+        return None
+    else:
+        return outf
+
+def filter_shapefiles(shapefiles, year):
+    shapefiles_ = []
+    for s in shapefiles:
+        sbs = os.path.basename(s)
+        if 'irrigated' in sbs and 'unirrigated' not in sbs:
+            shapefiles_.append(filter_shapefile_by_year(s, year))
+        elif 'fallow' in sbs:
+            shapefiles_.append(filter_shapefile_by_year(s, year))
+        else:
+            shapefiles_.append(s)
+    return [s for s in shapefiles_ if s is not None]
+
+def assign_shapefile_class_code(f):
+    f = os.path.basename(f)
+    #print(f)
+    if 'irrigated' in f and 'unirrigated' not in f:
+        return 1
+    else:
+        return 0
+
+def load_raster(raster_name):
+    with rasterio.open(raster_name, 'r') as src:
+        arr = src.read()
+        meta = src.meta.copy()
+    return arr, meta
+
 if __name__ == '__main__':
-    r1 = '/home/thomas/mt/montana-irr-rasters/rasters/irrMT{}.tif'
-    # for i in range(2000,2020):
-    #     a = (calc_irr_area(r1.format(i)))
-    #     print(i,a)
-    r1 = '/home/thomas/mt/montana-irr-rasters/rasters/irrMT2012Clipped.tif'
-    a = calc_irr_area(r1)
-    print(a)
+
+    years = [2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015]
+
+    shapefiles = [   'fallow_test.shp',
+                     'unirrigated_test.shp',
+                     'irrigated_test.shp',
+                     'uncultivated_test.shp',
+                     'wetlands_buffered_test.shp']
+
+    mask_raster = '../irrp52000.tif'
+    root = '/home/thomas/irrigated-training-data-aug21/ee-dataset/data/test/'
+    shapefiles = [root + s for s in shapefiles]
+    median = False
+    median_3 = False
+    ocmat = np.zeros((2,2))
+    for year in years:
+        labels = create_class_labels(shapefiles,
+                                     assign_shapefile_class_code,
+                                     mask_raster,
+                                     year)
+        r = '/home/thomas/mt/'
+        if median:
+            median_raster,_ = load_raster(r + 'bootstrapped/irrmedian{}.tif'.format(year))
+            median_raster[median_raster >= np.max(median_raster)/2] = 1
+            median_raster[median_raster != 1] = 0
+            median_raster = median_raster[~labels.mask]
+            labels = labels[~labels.mask]
+            print(year)
+            cmat = confusion_matrix(labels, median_raster)
+            tn, fp, fn, tp = cmat.ravel()
+            oa = (tn + tp) / (tn + fp + tp + fn)
+            prec = (tp)/(tp+fp)
+            rec = (tp)/(tp+fn)
+            # print(cmat)
+            print(oa, prec, rec)
+            print('----')
+        elif median_3:
+            median_raster,_ = load_raster('/home/thomas/ssd/median_rasters/irrmedian3bands{}.tif'.format(year))
+            amax = np.argmax(median_raster, axis=0)
+            #print(np.unique(amax))
+            amax[amax == 2] = 1 
+            amax[amax == 0] = 2
+            amax[amax == 1] = 0
+            amax[amax == 2] = 1
+            labels = labels.squeeze()
+            median_raster = amax[~labels.mask]
+            #print(np.unique(median_raster))
+            labels = labels[~labels.mask]
+            #print(np.unique(labels))
+            cmat = confusion_matrix(labels, median_raster)
+            ocmat += cmat
+            tn, fp, fn, tp = cmat.ravel()
+            oa = (tn + tp) / (tn + fp + tp + fn)
+            prec = (tp)/(tp+fp)
+            rec = (tp)/(tp+fn)
+            print(cmat)
+            print(oa, prec, rec, 2*prec*rec/(prec+rec))
+            print('----')
+        else:
+            mean_raster,_ = load_raster(r + 'bootstrapped/irrmean{}.tif'.format(year))
+            amax = np.argmax(mean_raster, axis=0)
+            amax[amax == 2] = 1 
+            amax[amax == 0] = 2
+            amax[amax == 1] = 0
+            amax[amax == 2] = 1
+            mean_raster = amax[~labels.squeeze().mask]
+            labels = labels[~labels.mask].squeeze()
+            cmat = confusion_matrix(labels, mean_raster)
+            tn, fp, fn, tp = cmat.ravel()
+            print(cmat)
+            oa = (tn + tp) / (tn + fp + tp + fn)
+            prec = (tp)/(tp+fp)
+            rec = (tp)/(tp+fn)
+            # print(cmat)
+            print(oa, prec, rec, 2*prec*rec/(prec+rec))
+            print('----')
+
+    print('final')
+    tn, fp, fn, tp = ocmat.ravel()
+    oa = (tn + tp) / (tn + fp + tp + fn)
+    prec = (tp)/(tp+fp)
+    rec = (tp)/(tp+fn)
+    print(ocmat)
+    print(oa, prec, rec, 2*prec*rec/(prec+rec))
+    print('----')
+    # year_to_area = {}
+    # for tif in glob("../*mean*"):
+    #     if tif.endswith('.tif'):
+    #         year = os.path.splitext(os.path.basename(tif))[0][-4:]
+    #         area = clip_to_mt_and_get_area(tif)
+    #         print(year, area)
+    #         year_to_area[year] = area
+
+    # oroot = '/home/thomas/ssd/bootstrapped_merged_rasters/'
+    # for d in glob('/home/thomas/share/results/*100*'):
+    #     on = os.path.basename(os.path.normpath(d))
+    #     od = os.path.join(oroot, on)
+    #     if not os.path.isdir(od):
+    #         os.makedirs(od, exist_ok=True)
+    #     files = glob(os.path.join(d, '*tif'))
+    #     for year in range(2000, 2020):
+    #         file_subset = [f for f in files if str(year) in f]
+    #         if len(file_subset) >= 56:
+    #             out_filename = os.path.join(od, 'irr{}_{}.tif'.format(on, year))
+    #             if not os.path.isfile(out_filename):
+    #                 print(out_filename)
+    #                 merge_rasters_gdal(file_subset, out_filename)
+    #         else:
+    #             continue
+    #             # print(d, year, len(file_subset))
 
     # crop_proportions_over_time('./crop_proportions.json')
     # alf = pd.read_csv('/home/thomas/mt/statistics/unirrigated_alfalfa.csv')
