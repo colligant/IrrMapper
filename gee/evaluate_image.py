@@ -135,18 +135,18 @@ def model_predictions(model_path,
         os.makedirs(out_directory, exist_ok=True)
 
     for f in files:
-        try:
-            image_stack, target_meta = prepare_raster(f, ndvi)
-        except (rasterio.errors.RasterioIOError, AttributeError, TypeError) as e:
-            print(f)
-            print(e)
-            continue
         out_filename = 'irr{}'.format(os.path.splitext(os.path.basename(f))[0])
         out_filename +=  os.path.basename(model_path) + ".tif"
         out_filename = os.path.join(out_directory, out_filename)
 
         if not os.path.isfile(out_filename):
             print(out_filename)
+            try:
+                image_stack, target_meta = prepare_raster(f, ndvi)
+            except (rasterio.errors.RasterioIOError, AttributeError, TypeError) as e:
+                print(f)
+                print(e)
+                continue
             if dropout:
                 arrs = []
                 for _ in range(20):

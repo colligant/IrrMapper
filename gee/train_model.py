@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import utils.utils as utils
 import models.unet as unet
 import models.unet_attention as unet_attention
+import models.residual_unet as residual_unet
 
 
 def m_acc(y_true, y_pred):
@@ -134,6 +135,12 @@ if __name__ == '__main__':
                 )
     elif config.model_settings.unet_dropout:
         model = unet.unet_dropout((None, None, config.model_settings.unet_input_channels), 
+                n_classes=config.model_settings.num_classes,
+                initial_exp=config.model_settings.unet_initial_exp,
+                weight_decay_const=config.model_settings.weight_decay_const,
+                apply_batchnorm=config.model_settings.apply_batchnorm)
+    elif config.model_settings.residual:
+        model = residual_unet.residual_unet((None, None, config.model_settings.unet_input_channels), 
                 n_classes=config.model_settings.num_classes,
                 initial_exp=config.model_settings.unet_initial_exp,
                 weight_decay_const=config.model_settings.weight_decay_const,

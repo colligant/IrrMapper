@@ -49,7 +49,8 @@ if __name__ == '__main__':
                                             year=args.year, 
                                             n_classes=args.n_classes,
                                             buffer_size=1,
-                                            temporal_unet=False)
+                                            temporal_unet=False,
+                                            border_labels=False)
 
     # 2003, 2008, 2009, 2010, 2011, 2012, 2013, 2015
     if not isinstance(dataset, list):

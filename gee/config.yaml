@@ -22,13 +22,14 @@ model_settings:
     timesteps: 6
     border_labels: False
     bootstrap: True
+    residual: True
 
 data_settings:
     data_root: '/home/thomas/ssd/'
     train_path: 'train-data-sept5'
     test_path: 'test-data-sept5'
     sample_weights_train: [0, 0, 0] 
-    model_save_directory: '/home/thomas/models/bootstrap_oct29/'
+    model_save_directory: '/home/thomas/models/residual/'
     shuffle_buffer_size: 10
     add_ndvi: False
     train_year: null

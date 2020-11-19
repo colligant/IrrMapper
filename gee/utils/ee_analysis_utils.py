@@ -1,5 +1,6 @@
 import ee
 import os
+from collections import defaultdict
 ee.Initialize()
 
 
@@ -96,7 +97,7 @@ def irrigated_predictions_by_county(irrigated_raster, county_shapefile, year):
     mask = mask.multiply(irr.select("irr").gt(irr.select("uncult")))
 
     # pixelArea is an ee builtin
-    area_raster = ee.Image.pixelArea().multiply(mask);
+    area_raster = ee.Image.pixelArea().updateMas(mask);
 
     def clip_to_counties(feature): 
         name = feature.get("NAME")
@@ -255,11 +256,10 @@ def mask_irrigated_raster_to_cdl(irrigated_raster, cdl_class, county_shapefile, 
 
 
 def create_lanid_labels(year):
-    lanid = ee.Image('users/xyhisu/irrigationMapping/results/LANID12');
+    year = str(year)[-2:]
+    lanid = ee.Image('users/xyhuwmir4/LANID_MT_08-13' ).select('irMap{}'.format(year));
     irr_mask = lanid.eq(1); # lanid is already masked
-
     unmasked = lanid.unmask(0);
-
     unirr_image = ee.Image(1).byte().updateMask(unmasked.Not());
     irr_image = ee.Image(1).byte().updateMask(irr_mask);
     return irr_image, unirr_image
@@ -275,9 +275,8 @@ def create_unet_labels(year):
     return irrImage, unirrImage
 
 def create_rf_labels(year):
-    year = '2012';
-    begin = year + '-01-01'
-    end = year + '-12-31'
+    begin = '{}-01-01'.format(year)
+    end = '{}-12-31'.format(year)
     rf = ee.ImageCollection('users/dgketchum/IrrMapper/version_2');
     rf = rf.filter(ee.Filter.date(begin, end)).select('classification').mosaic();
     irrMask = rf.lt(1);
@@ -320,66 +319,56 @@ def create_irrigated_labels(all_data, year):
     return irr_labels, unirr_labels
 
 
+method_to_year = {
+        'rf':{k:True for k in range(2000,2020)},
+        'unet':{k:True for k in range(2000,2020)},
+        'mirad':{k:True for k in [2002,2007,2012,2017]},
+        'lanid':{k:True for k in range(2008,2014)}
+        }
+
+def irrigated_area_by_method(year, method_to_year_and_area):
+
+    mt = "users/tcolligan0/Montana"
+    mt = ee.FeatureCollection(mt)
+    mt = mt.toList(mt.size()).get(0)
+    mt = ee.Feature(mt)
+
+    fns = [create_rf_labels, create_unet_labels, create_lanid_labels, create_mirad_labels]
+    for method in fns:
+        name = method.__name__.split('_')[1]
+        try:
+            _ = method_to_year[name][year]
+        except KeyError:
+            continue
+        
+        irrImage, unirrImage = method(year)
+        area_image = ee.Image.pixelArea().updateMask(irrImage)
+        if name == 'mirad':
+            irrigated_area = area_image.reduceRegion(
+                    reducer=ee.Reducer.sum(),
+                    geometry=mt.geometry(),
+                    scale=250,
+                    bestEffort=True
+                    )
+        else:
+            irrigated_area = area_image.reduceRegion(
+                    reducer=ee.Reducer.sum(),
+                    geometry=mt.geometry(),
+                    scale=30,
+                    bestEffort=True
+                    )
+
+        area = irrigated_area.getInfo()['area']
+        print('method: {}, year: {}, area: {:.3f}'.format(name, year, area*ACRES_PER_SQUARE_METER))
+        method_to_year_and_area[name][year] = area*ACRES_PER_SQUARE_METER
+
+
 if __name__ == '__main__':
 
     import json
-
-    with open('./mirad_2017.json', 'r') as f:
-        method_to_year_and_conf = json.load(f)
-
-    print(method_to_year_and_conf.keys())
-    for method, year_dict in method_to_year_and_conf.items():
-        tp_ = 0
-        fp_ = 0
-        fn_ = 0
-        tn_ = 0
-        # for year in range(2008, 2014):
-        for year in [2012]:
-            c = year_dict[str(year)]
-            tp_ += c['TP']['constant']
-            fp_ += c['FP']['constant']
-            tn_ += c['TN']['constant']
-            fn_ += c['FN']['constant']
-        prec = (tp_) / (tp_+fp_)
-        rec = (tp_) / (tp_+fn_)
-        acc = (tp_+tn_)/(tp_+fn_+fp_+tn_)
-        s = '{} {} {:.5f} {:.5f} {:.5f}, f1: {}'
-
-        print(s.format(method, year, acc, prec, rec, 2*(prec*rec)/(prec+rec)))
-    
-     #from collections import defaultdict
-     #fns = [create_rf_labels, create_unet_labels, create_lanid_labels]
-     #fns = [create_mirad_labels]
-     #final = defaultdict(dict)
-     #import json
-     #years = range(2008, 2014)
-     #years = [2002, 2007, 2012, 2017]
-     #for year in years:
-     #    for f in fns:
-     #        irr_labels, unirr_labels = create_irrigated_labels(False, year)
-     #        irr_image, unirr_image = f(year)
-     #        out = confusion_matrices(irr_labels, unirr_labels, irr_image, unirr_image)
-     #        final[f.__name__][year] = out
-     #        print(final)
-
-     #    with open('./mirad_{}.json'.format(year), 'w') as f:
-     #        json.dump(final, f)
-     #    print(year)
-     #    print(final)
-
-
-    # irr_base = 'users/tcolligan0/irrigation-rasters-sept27/irrMT{}'
-    # county = 'users/tcolligan0/County'
-    # fc = None
-    # for year in range(2000, 2020):
-    #     irr = irr_base.format(year)
-    #     fw = irrigated_predictions_by_county(irr, county, year)
-    #     if fc is None:
-    #         fc = fw
-    #     else:
-    #         fc = fc.merge(fw)
-    # task = ee.batch.Export.table.toDrive(
-    #         collection=fc,
-    #         description="all_years"
-    #     )
-    # task.start()
+    method_to_year_and_area = defaultdict(dict)
+    for year in range(2000, 2020):
+        irrigated_area_by_method(year, method_to_year_and_area)
+    print(method_to_year_and_area)
+    with open('../results/irrigated_area_by_method.json', 'w') as f:
+        json.dump(method_to_year_and_area,f)
